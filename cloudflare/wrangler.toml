@@ -1,0 +1,44 @@
+name = "pointblank-linux-network"
+main = "worker.mjs"
+compatibility_date = "2026-11-23"
+compatibility_flags = ["enable_request_signal"]
+workers_dev = false
+preview_urls = false
+
+[[routes]]
+pattern = "network.pointblankllc.com"
+custom_domain = true
+
+[vars]
+WORKSTATION_ORIGINS = "https://linux.pointblankllc.com"
+GIT_REPOSITORIES = '{"robit-man/pointblank":"read","robit-man/pointblank-workstation-smoke":"write"}'
+HTTP_DESTINATIONS = """
+[
+  { "id": "diagnostics", "origin": "https://linux.pointblankllc.com", "paths": ["/network-fixtures"], "methods": ["GET", "HEAD", "POST"], "requestBytes": 65536, "responseBytes": 2097152, "timeoutMs": 5000 },
+  { "id": "alpine", "origin": "https://dl-cdn.alpinelinux.org", "paths": ["/alpine/v3.24/main", "/alpine/v3.24/community"], "methods": ["GET", "HEAD"] },
+  { "id": "pypi", "origin": "https://pypi.org", "paths": ["/simple"], "methods": ["GET", "HEAD"] },
+  { "id": "pypi-files", "origin": "https://files.pythonhosted.org", "paths": ["/packages"], "methods": ["GET", "HEAD"] },
+  { "id": "npm", "origin": "https://registry.npmjs.org", "paths": ["/"], "methods": ["GET", "HEAD"] }
+]
+"""
+
+[[services]]
+binding = "DIAGNOSTICS"
+service = "browser-agent"
+
+[[ratelimits]]
+name = "AUTH_LIMIT"
+namespace_id = "4013728101"
+simple = { limit = 12, period = 60 }
+
+[[ratelimits]]
+name = "REQUEST_LIMIT"
+namespace_id = "4013728102"
+simple = { limit = 240, period = 60 }
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+invocation_logs = false

@@ -1,0 +1,75 @@
+<style id="workstation-style">
+  .frame { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  #terminal-area { position: relative; min-width: 0; }
+  #workstation-bar, #workstation-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 8px var(--inset); font-size: 12px; }
+  #workstation-bar { border-bottom: 1px solid #252525; }
+  #workstation-bar nav { display: flex; flex-wrap: wrap; gap: 4px; }
+  #workstation-status { border-top: 1px solid #252525; color: #aaa; }
+  #save-status { flex: 1 1 160px; overflow-wrap: anywhere; }
+  .workstation-brand { color: #ededed; font-weight: 700; }
+  #workstation-bar button, #workstation-status button, dialog button, select, dialog input {
+    font: inherit; color: inherit; border: 1px solid #444; background: #141414; border-radius: 3px; padding: 4px 7px;
+  }
+  button:disabled { opacity: .45; }
+  button:not(:disabled), select { cursor: pointer; }
+  :focus-visible { outline: 2px solid #87bfff; outline-offset: 2px; }
+  #boot { font-family: inherit; }
+  dialog { color: #efefef; background: #101010; border: 1px solid #454545; border-radius: 5px; max-width: min(95vw, 520px); width: 100%; padding: 16px; font: 13px/1.5 var(--mono); }
+  dialog h2 { font-size: 15px; margin: 0 0 12px; }
+  dialog::backdrop { background: #000a; }
+  dialog form { display: flex; flex-wrap: wrap; gap: 8px; }
+  dialog form label { flex: 1 1 100%; display: grid; gap: 3px; }
+  dialog #snapshot-name { flex: 1; min-width: 120px; }
+  #snapshot-list { list-style: none; padding: 0; }
+  #snapshot-list li { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+  #snapshot-list li span { flex: 1 1 100%; overflow-wrap: anywhere; }
+  #network-message { flex: 1 1 100%; color: #ffab9d; }
+  #network-message:empty { display: none; }
+  .dialog-close { margin-top: 14px; }
+</style>
+<div class="frame">
+  <header id="workstation-bar">
+    <span class="workstation-brand">POINTBLANK / LINUX</span>
+    <nav aria-label="Workspace">
+      <button id="save-state" disabled>Save</button>
+      <button id="export-state" disabled>Export</button>
+      <button id="import-state" disabled>Import</button>
+      <button id="snapshots" disabled>Snapshots</button>
+      <button id="reset-state" disabled>Reset</button>
+    </nav>
+  </header>
+  <main id="terminal-area"><div id="terminal"></div><div id="boot">Starting Linux…</div><output id="transfer" role="status"></output></main>
+  <footer id="workstation-status">
+    <button id="network-settings" disabled>NETWORK: OFFLINE</button>
+    <output id="storage-usage">Checking storage…</output>
+    <label>Autosave <select id="autosave" disabled>
+      <option value="0">Off</option><option value="30">30 sec</option>
+      <option value="60">1 min</option><option value="180">3 min</option>
+    </select></label>
+    <button id="storage-protect" disabled>Protect storage</button>
+    <output id="save-status" role="status"></output>
+  </footer>
+</div>
+<input id="snapshot-file" type="file" accept=".pblinux,application/octet-stream" hidden aria-label="Import filesystem snapshot">
+<dialog id="snapshot-dialog" aria-labelledby="snapshot-title">
+  <h2 id="snapshot-title">Snapshots</h2>
+  <form id="snapshot-create">
+    <input id="snapshot-name" aria-label="Snapshot name" placeholder="Snapshot name" required maxlength="80">
+    <button type="submit">Create</button>
+  </form>
+  <ul id="snapshot-list"></ul>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="network-dialog" aria-labelledby="network-title">
+  <h2 id="network-title">Authorize networking</h2>
+  <form id="network-connect" autocomplete="off">
+    <label>Workstation egress key <input name="key" type="password" autocomplete="new-password" required maxlength="256"></label>
+    <label>GitHub repository for private Git or push <input name="repository" placeholder="owner/repository" maxlength="200"></label>
+    <label>GitHub username <input name="username" maxlength="39"></label>
+    <label>Repository-scoped GitHub token <input name="git-token" type="password" autocomplete="new-password" maxlength="256"></label>
+    <button type="submit">Connect</button>
+    <button type="button" id="network-disable">Disconnect</button>
+    <output id="network-message" role="status"></output>
+  </form>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
