@@ -404,7 +404,7 @@ body { font: 400 1rem/1.4 system-ui, sans-serif; }
   box-shadow: 0 8px 28px #000a;
 }
 #workspace-actions, #connection-menu { top: calc(max(5px, env(safe-area-inset-top)) + 44px); right: 8px; }
-#workspace-actions { right: 52px; }
+#workspace-actions { right: 52px; max-height: calc(var(--viewport-height, 100dvh) - 64px); overflow-y: auto; }
 #connection-menu { padding: 12px; width: min(330px, calc(100vw - 16px)); gap: 8px; }
 #connection-menu h2, dialog h2 { font-size: .9375rem; font-weight: 650; margin: 0; }
 #connection-menu p, #save-status, #storage-usage { margin: 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
@@ -443,6 +443,26 @@ dialog button:hover:not(:disabled), #connection-menu button:hover:not(:disabled)
 dialog input, dialog select, #term-paste-field { font-size: 16px; min-width: 0; }
 dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
 .dialog-actions, .share-heading, .share-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap); }
+#workspace-files-dialog, #workspace-packs-dialog { width: min(calc(100vw - 24px), 520px); }
+#workspace-preview-dialog { width: min(calc(100vw - 24px), 960px); }
+#workspace-files-path { display: block; margin-block: 8px; overflow-wrap: anywhere; }
+#workspace-files-list { max-height: min(44dvh, 420px); list-style: none; padding: 0; overflow-y: auto; margin: 8px 0; }
+#workspace-files-list li, .workspace-pack-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border-bottom: 1px solid var(--edge); min-height: 35px; padding: 4px 2px;
+}
+#workspace-files-list button, #workspace-files-list span { overflow-wrap: anywhere; min-width: 0; text-align: start; }
+#workspace-files-list button { border: 0; background: transparent; }
+#workspace-files-list small, .workspace-pack-row p { color: var(--muted); }
+#workspace-files-list small { flex: none; }
+#workspace-preview-form { grid-template-columns: 6em minmax(0, 1fr) auto; align-items: end; }
+#workspace-preview-status { display: block; margin-block: 8px; }
+#workspace-preview-frame { width: 100%; height: min(58dvh, 640px); border: 1px solid var(--edge); background: white; }
+#workspace-packs-log {
+  max-height: 28dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: .75rem/1.45 ui-monospace, monospace; color: var(--muted);
+}
+.workspace-pack-row p { margin: 2px 0 0; }
 .share-heading { justify-content: space-between; }
 .share-heading h2 { margin: 0; }
 .share-heading .icon-button { width: 34px; height: 34px; min-height: 0; padding: 0; background: transparent; border-color: transparent; }
@@ -547,6 +567,8 @@ dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
   <div id="workspace-actions" aria-label="Workspace actions" hidden>
     <button id="split-right" disabled>Split right</button><button id="split-down" disabled>Split down</button>
     <button id="share-workspace" disabled>Terminal sharing</button><hr>
+    <button id="open-workspace-files" disabled>Files</button><button id="open-workspace-preview" disabled>Preview server</button>
+    <button id="open-workspace-packs" disabled>Tool packs</button><hr>
     <button id="upload-files" disabled>Upload files</button><button id="save-state" disabled>Save workspace</button><button id="export-state" disabled>Export snapshot</button>
     <button id="import-state" disabled>Import snapshot</button><button id="snapshots" disabled>Snapshots</button><button id="workspace-storage" disabled>Storage and autosave</button><hr>
     <button id="maintenance-shell" disabled>Maintenance shell</button><button id="reset-state" disabled>Reset workspace</button>
@@ -568,6 +590,37 @@ dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
   <input id="term-paste-field" placeholder="Paste here" aria-label="Paste text into the terminal" hidden>
 </div>
 <input id="snapshot-file" type="file" accept=".pblinux,application/octet-stream" hidden aria-label="Import filesystem snapshot">
+<dialog id="workspace-files-dialog" aria-labelledby="workspace-files-title">
+  <h2 id="workspace-files-title">Files</h2>
+  <div class="dialog-actions"><button id="workspace-files-up" disabled>Up</button><button id="workspace-files-refresh">Refresh</button>
+    <button id="workspace-files-upload">Upload to inbox</button><button id="workspace-files-zip" disabled>Download folder ZIP</button></div>
+  <code id="workspace-files-path">/workspace</code><output id="workspace-files-status" role="status"></output>
+  <ul id="workspace-files-list" aria-label="Workspace files"></ul>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="workspace-preview-dialog" aria-labelledby="workspace-preview-title">
+  <h2 id="workspace-preview-title">Preview server</h2>
+  <p>Start a web server in Alpine. This preview displays HTML, CSS, images, and text.</p>
+  <form id="workspace-preview-form">
+    <label>Port <input id="workspace-preview-port" type="number" min="1" max="65535" value="8000" required></label>
+    <label>Path <input id="workspace-preview-path" value="/" maxlength="8192" required autocapitalize="off" spellcheck="false"></label>
+    <button>Open</button>
+  </form>
+  <output id="workspace-preview-status" role="status"></output>
+  <iframe id="workspace-preview-frame" title="Guest web preview" sandbox="allow-same-origin" referrerpolicy="no-referrer" hidden></iframe>
+  <div class="dialog-actions"><button id="workspace-preview-back" disabled>Back</button><button id="workspace-preview-refresh" disabled>Refresh</button></div>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="workspace-packs-dialog" aria-labelledby="workspace-packs-title">
+  <h2 id="workspace-packs-title">Tool packs</h2>
+  <p>Install tools from Alpine's approved repositories, then save your workspace to keep them.</p>
+  <div class="workspace-pack-row"><div><strong>Shell tools</strong><p>fzf and ShellCheck</p></div>
+    <button id="workspace-pack-shell" aria-label="Install Shell tools">Install</button></div>
+  <div class="workspace-pack-row"><div><strong>Native build</strong><p>GCC, C++, package config, and Linux headers</p></div>
+    <button id="workspace-pack-native" aria-label="Install Native build">Install</button></div>
+  <pre id="workspace-packs-log" role="status" tabindex="0"></pre>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
 <dialog id="storage-dialog" aria-labelledby="storage-title">
   <h2 id="storage-title">Storage and autosave</h2><p><output id="storage-usage">Checking storage…</output></p>
   <label>Autosave <select id="autosave" disabled><option value="0">Off</option><option value="30">30 sec</option><option value="60">1 min</option><option value="180">3 min</option></select></label>
@@ -1326,6 +1379,8 @@ function isGitPackDownload(url, method) {
   return method === 'POST' && url.origin === 'https://github.com' &&
     !url.search && /^\/[\w.-]+\/[\w.-]+\/git-upload-pack$/.test(url.pathname);
 }
+
+const workspaceToolsProgram = "\"\"\"Browser workspace file operations and loopback HTTP reads.\"\"\"\nfrom contextlib import contextmanager\nfrom http.client import HTTPConnection\nimport json\nimport os\nimport stat\nimport sys\nfrom zipfile import ZIP_DEFLATED, ZipFile\n\n\nMIB = 1024 * 1024\nDOWNLOAD_LIMIT = 128 * MIB\nPREVIEW_LIMIT = 8 * MIB\nDIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW\nINPUT_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK\n\n\ndef usable_name(name):\n    return (isinstance(name, str) and name not in (\"\", \".\", \"..\")\n            and not any(c in \"/\\\\\" or ord(c) < 32 or ord(c) == 127 for c in name))\n\n\ndef validate_parts(parts):\n    if (not isinstance(parts, list) or len(parts) > 80\n            or not all(usable_name(part) for part in parts)\n            or sum(len(part) for part in parts) > 4096):\n        raise ValueError(\"Invalid workspace path\")\n\n\n@contextmanager\ndef workspace_directory(parts):\n    directory = os.open(\"/workspace\", DIRECTORY)\n    try:\n        for name in parts:\n            child = os.open(name, DIRECTORY, dir_fd=directory)\n            os.close(directory)\n            directory = child\n        yield directory\n    finally:\n        os.close(directory)\n\n\n@contextmanager\ndef regular_file(directory, name):\n    with os.fdopen(os.open(name, INPUT_FILE, dir_fd=directory), \"rb\") as source:\n        info = os.fstat(source.fileno())\n        if not stat.S_ISREG(info.st_mode):\n            raise ValueError(\"Select a regular file\")\n        yield source, info.st_size\n\n\ndef copy_with_limit(source, target, remaining):\n    while data := source.read(64 * 1024):\n        remaining -= len(data)\n        if remaining < 0:\n            raise ValueError(\"Download exceeds 128 MiB\")\n        target.write(data)\n    return remaining\n\n\ndef list_directory(directory):\n    entries = []\n    with os.scandir(directory) as listing:\n        for entry in listing:\n            if len(entries) >= 1000:\n                raise ValueError(\"The folder contains more than 1,000 entries\")\n            info = entry.stat(follow_symlinks=False)\n            kind = (\"folder\" if stat.S_ISDIR(info.st_mode) else\n                    \"file\" if stat.S_ISREG(info.st_mode) else\n                    \"link\" if stat.S_ISLNK(info.st_mode) else \"special\")\n            if not usable_name(entry.name):\n                kind = \"special\"\n            entries.append({\"name\": entry.name, \"kind\": kind, \"size\": info.st_size if kind == \"file\" else None})\n    return entries\n\n\ndef archive_directory(directory, output):\n    remaining = DOWNLOAD_LIMIT\n    count = 0\n    with ZipFile(output, \"w\", compression=ZIP_DEFLATED, compresslevel=5) as archive:\n        def visit(parent, prefix, depth):\n            nonlocal remaining, count\n            if depth > 80:\n                raise ValueError(\"The folder exceeds the export depth limit\")\n            with os.scandir(parent) as listing:\n                for entry in listing:\n                    count += 1\n                    if count > 5000:\n                        raise ValueError(\"The folder contains more than 5,000 entries\")\n                    if not usable_name(entry.name) or \":\" in entry.name:\n                        continue\n                    # Some Linux filenames cannot be represented in UTF-8 ZIPs.\n                    try:\n                        entry.name.encode(\"utf-8\")\n                    except UnicodeEncodeError:\n                        continue\n                    path = prefix + entry.name\n                    info = entry.stat(follow_symlinks=False)\n                    if stat.S_ISDIR(info.st_mode):\n                        child = os.open(entry.name, DIRECTORY, dir_fd=parent)\n                        try:\n                            archive.mkdir(path)\n                            visit(child, path + \"/\", depth + 1)\n                        finally:\n                            os.close(child)\n                    elif stat.S_ISREG(info.st_mode):\n                        with regular_file(parent, entry.name) as (source, size):\n                            if size > remaining:\n                                raise ValueError(\"Folder contents exceed 128 MiB\")\n                            with archive.open(path, \"w\") as target:\n                                remaining = copy_with_limit(source, target, remaining)\n\n        visit(directory, \"\", 0)\n\n\ndef preview_response(request, output):\n    port, path = request[\"port\"], request[\"path\"]\n    if (type(port) is not int or not 1 <= port <= 65535 or port == 18791\n            or not isinstance(path, str) or not path.startswith(\"/\") or path.startswith(\"//\")\n            or len(path) > 8192 or not path.isascii() or any(ord(c) < 33 or ord(c) > 126 for c in path)):\n        raise ValueError(\"Invalid preview port or path\")\n    connection = HTTPConnection(\"127.0.0.1\", port, timeout=6)\n    try:\n        connection.request(\"GET\", path, headers={\"Accept-Encoding\": \"identity\", \"Connection\": \"close\"})\n        response = connection.getresponse()\n        kind = response.getheader(\"Content-Type\", \"application/octet-stream\").split(\";\", 1)[0].strip().lower()\n        location = response.getheader(\"Location\", \"\") if 300 <= response.status < 400 else \"\"\n        if len(kind) > 100 or len(location) > 2048:\n            raise ValueError(\"Invalid preview response headers\")\n        if response.getheader(\"Content-Encoding\", \"identity\").lower() != \"identity\":\n            raise ValueError(\"The server returned an unsupported content encoding\")\n        if not 300 <= response.status < 400 and response.length is not None and response.length > PREVIEW_LIMIT:\n            raise ValueError(\"Preview response exceeds 8 MiB\")\n        header = {\"status\": response.status, \"type\": kind, \"location\": location}\n        output.write(json.dumps(header, separators=(\",\", \":\")).encode() + b\"\\n\")\n        if 300 <= response.status < 400:\n            return\n        remaining = PREVIEW_LIMIT\n        while data := response.read(64 * 1024):\n            remaining -= len(data)\n            if remaining < 0:\n                raise ValueError(\"Preview response exceeds 8 MiB\")\n            output.write(data)\n    finally:\n        connection.close()\n\n\ndef main():\n    action, raw = sys.argv[1:]\n    request = json.loads(raw)\n    output = sys.stdout.buffer\n    if action == \"preview\":\n        preview_response(request, output)\n        return\n    validate_parts(request)\n    if action == \"file\" and request:\n        with workspace_directory(request[:-1]) as directory, regular_file(directory, request[-1]) as (source, size):\n            if size > DOWNLOAD_LIMIT:\n                raise ValueError(\"File exceeds 128 MiB\")\n            copy_with_limit(source, output, DOWNLOAD_LIMIT)\n        return\n    with workspace_directory(request) as directory:\n        if action == \"list\":\n            output.write(json.dumps(list_directory(directory), separators=(\",\", \":\")).encode())\n        elif action == \"zip\":\n            archive_directory(directory, output)\n        else:\n            raise ValueError(\"Unknown workspace operation\")\n\n\nif __name__ == \"__main__\":\n    try:\n        main()\n    except ConnectionRefusedError:\n        sys.exit(\"No HTTP server is listening on that guest port\")\n    except TimeoutError:\n        sys.exit(\"The guest HTTP server did not respond in time\")\n    except (OSError, ValueError) as error:\n        sys.exit(str(error))\n";
 
 const MiB = 1024 * 1024;
 const maxArchive = 320 * MiB;
@@ -3799,8 +3854,494 @@ function resizeGuestTerminal(session, cols, rows) {
   session.content.style.height = screen.style.height;
 }
 
+const workspaceToolPacks = new Map([
+  ['shell', { packages: ['fzf', 'shellcheck'], space: 24 * MiB, name: 'Shell tools' }],
+  ['native', { packages: ['build-base', 'pkgconf', 'linux-headers'], space: 300 * MiB, name: 'Native build' }],
+]);
+
+async function workspaceProcess(args, { limit = MiB, timeout = 30000, signal, onOutput } = {}) {
+  const activeSignal = AbortSignal.any([AbortSignal.timeout(timeout), ...(signal ? [signal] : [])]);
+  activeSignal.throwIfAborted();
+  const command = 'exec docker exec botpsy-alpine ' + args.map(shellQuote).join(' ');
+  const proc = await runtime.vm.spawn('/bin/sh', ['-c', command], { pty: false });
+  const cancel = () => { void Promise.resolve().then(() => proc.kill('TERM')).catch(() => {}); };
+  activeSignal.addEventListener('abort', cancel, { once: true });
+  const chunks = [];
+  let bytesRead = 0, errorText = '';
+  const stdout = new TextDecoder();
+  const stderr = new TextDecoder();
+  try {
+    if (activeSignal.aborted) { cancel(); activeSignal.throwIfAborted(); }
+    await Promise.all([
+      proc.stdin.close(),
+      proc.stdout.pipeTo(new WritableStream({
+        write(chunk) {
+          bytesRead += chunk.byteLength;
+          if (bytesRead > limit) throw Error('The Linux response exceeded the transfer limit');
+          if (onOutput) onOutput(stdout.decode(chunk, { stream: true }));
+          else chunks.push(chunk);
+        },
+      }), { signal: activeSignal }),
+      proc.stderr.pipeTo(new WritableStream({
+        write(chunk) {
+          const text = stderr.decode(chunk, { stream: true });
+          errorText = (errorText + text).slice(-4000);
+          onOutput?.(text);
+        },
+      }), { signal: activeSignal }),
+      proc.ended,
+    ]);
+    activeSignal.throwIfAborted();
+    if (proc.exitCode !== 0) throw Error(errorText.trim() || 'Linux command failed');
+    return new Blob(chunks);
+  } catch (error) {
+    cancel();
+    if (activeSignal.reason?.name === 'TimeoutError') throw Error('The Linux operation timed out');
+    throw error;
+  } finally {
+    activeSignal.removeEventListener('abort', cancel);
+    await proc.close().catch(() => {});
+  }
+}
+
+function workspaceTool(action, input, options) {
+  return workspaceProcess(['python3', '-I', proxyRoot + '/workspace-tools.py', action, JSON.stringify(input)], options);
+}
+
+function workspaceDownload(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.download = name;
+  link.href = url;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+function installWorkspaceFiles() {
+  const dialog = byId('workspace-files-dialog');
+  const list = byId('workspace-files-list');
+  const current = byId('workspace-files-path');
+  const status = byId('workspace-files-status');
+  const up = byId('workspace-files-up');
+  const zip = byId('workspace-files-zip');
+  let directory = [], controller;
+
+  async function action(message, perform) {
+    controller?.abort();
+    const job = new AbortController();
+    controller = job;
+    status.textContent = message;
+    for (const button of [up, zip, ...list.querySelectorAll('button')]) button.disabled = true;
+    try {
+      await perform(job.signal);
+      if (!job.signal.aborted) status.textContent = '';
+    } catch (error) {
+      if (!job.signal.aborted) status.textContent = error.message;
+    } finally {
+      if (controller === job) {
+        controller = undefined;
+        up.disabled = !directory.length;
+        zip.disabled = false;
+        for (const button of list.querySelectorAll('button')) button.disabled = false;
+      }
+    }
+  }
+
+  function getDownload(path, isZip) {
+    void action(isZip ? 'Creating ZIP…' : 'Reading file…', async signal => {
+      const blob = await workspaceTool(isZip ? 'zip' : 'file', path, { limit: 133 * MiB, timeout: 120000, signal });
+      const name = path.at(-1) || 'workspace';
+      if (!signal.aborted) workspaceDownload(blob, isZip ? name + '.zip' : name);
+    });
+  }
+
+  function listFolder(path) {
+    void action('Reading folder…', async signal => {
+      const result = await workspaceTool('list', path, { limit: 4 * MiB, signal });
+      const entries = JSON.parse(await result.text());
+      signal.throwIfAborted();
+      directory = path;
+      current.textContent = ['/workspace', ...path].join('/');
+      list.replaceChildren();
+      entries.sort((a, b) => Number(b.kind === 'folder') - Number(a.kind === 'folder') || a.name.localeCompare(b.name));
+      if (!entries.length) {
+        const item = document.createElement('li');
+        item.textContent = 'Empty folder';
+        list.append(item);
+      }
+      for (const entry of entries) {
+        const item = document.createElement('li');
+        const isFolder = entry.kind === 'folder';
+        const actionable = isFolder || entry.kind === 'file';
+        const name = document.createElement(actionable ? 'button' : 'span');
+        name.textContent = entry.name;
+        if (actionable) {
+          name.type = 'button';
+          name.setAttribute('aria-label', (isFolder ? 'Open ' : 'Download ') + entry.name);
+          name.addEventListener('click', () => {
+            const target = [...path, entry.name];
+            if (isFolder) listFolder(target);
+            else getDownload(target, false);
+          });
+        }
+        const details = document.createElement('small');
+        details.textContent = entry.kind === 'file'
+          ? (entry.size >= 1024 ? (entry.size / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' KiB' : entry.size + ' B')
+          : entry.kind;
+        item.append(name, details);
+        list.append(item);
+      }
+    });
+  }
+
+  byId('open-workspace-files').addEventListener('click', () => {
+    dialog.showModal();
+    listFolder(directory);
+  });
+  byId('workspace-files-refresh').addEventListener('click', () => listFolder(directory));
+  byId('workspace-files-upload').addEventListener('click', () => byId('files').click());
+  up.addEventListener('click', () => listFolder(directory.slice(0, -1)));
+  zip.addEventListener('click', () => getDownload(directory, true));
+  dialog.addEventListener('close', () => controller?.abort());
+}
+
+function installWorkspacePacks() {
+  const dialog = byId('workspace-packs-dialog');
+  const log = byId('workspace-packs-log');
+  let installing = '', revision = 0;
+  const installed = new Set();
+  function update() {
+    for (const [id, pack] of workspaceToolPacks) {
+      const button = byId('workspace-pack-' + id);
+      button.disabled = busy || !!installing || installed.has(id);
+      button.textContent = installed.has(id) ? 'Installed' : installing === id ? 'Installing…' : 'Install';
+      button.setAttribute('aria-label', installed.has(id) ? pack.name + ' installed' : 'Install ' + pack.name);
+    }
+  }
+
+  async function scan() {
+    const request = ++revision;
+    const packageNames = [...new Set([...workspaceToolPacks.values()].flatMap(pack => pack.packages))];
+    try {
+      const reply = await workspaceProcess(['apk', 'list', '--quiet', '--installed', ...packageNames]);
+      const present = new Set((await reply.text()).trim().split('\n'));
+      if (revision !== request) return;
+      for (const [id, pack] of workspaceToolPacks) {
+        if (pack.packages.every(name => present.has(name))) {
+          installed.add(id);
+        } else installed.delete(id);
+      }
+    } catch (error) {
+      if (revision === request) log.textContent = error.message;
+    } finally {
+      if (revision === request) update();
+    }
+  }
+
+  for (const [id, pack] of workspaceToolPacks) {
+    byId('workspace-pack-' + id).addEventListener('click', () => {
+      if (installing || busy || installed.has(id)) return;
+      if (!egress.connected) {
+        log.textContent = 'Enable approved networking before installing a pack.';
+        return;
+      }
+      installing = id;
+      revision++;
+      update();
+      log.textContent = 'Checking workspace storage…';
+      void operation('Installing ' + pack.name + '…', async () => {
+        try {
+          const room = await workspaceRoom();
+          if (room < pack.space && !growthAllowed &&
+              !await requestWorkspaceGrowth(pack.name + ' may need more space than the default workspace allowance.')) {
+            log.textContent = 'Installation canceled';
+            status('Installation canceled');
+            return;
+          }
+          log.textContent = 'Installing ' + pack.name + '…\n';
+          await workspaceProcess(['apk', 'add', '--no-cache', ...pack.packages], {
+            limit: 4 * MiB, timeout: 420000,
+            onOutput(text) {
+              log.textContent = (log.textContent + text).slice(-6000);
+              log.scrollTop = log.scrollHeight;
+            },
+          });
+          installed.add(id);
+          log.textContent += '\n' + pack.name + ' installed.';
+          status(pack.name + ' installed');
+        } catch (error) {
+          log.textContent += '\n' + error.message;
+          throw error;
+        } finally { installing = ''; }
+      }).then(update);
+    });
+  }
+  byId('open-workspace-packs').addEventListener('click', () => {
+    dialog.showModal();
+    update();
+    if (!installing && !busy) void scan();
+  });
+  // Manual saves and autosave can start while this dialog remains open.
+  return update;
+}
+
+const workspacePreviewTags = new Set((
+  'a abbr address article aside b blockquote br caption cite code col colgroup dd details div dl dt em figcaption ' +
+  'figure footer h1 h2 h3 h4 h5 h6 header hr i img kbd li link main mark nav ol p pre s samp section small span ' +
+  'strong style sub summary sup table tbody td th thead time tr tfoot u ul var wbr'
+).split(' '));
+const workspacePreviewAttributes = new Set([
+  'alt', 'class', 'colspan', 'datetime', 'dir', 'height', 'id', 'lang', 'open', 'role', 'rowspan', 'scope',
+  'start', 'style', 'title', 'width',
+]);
+const workspacePreviewImages = new Set([
+  'image/avif', 'image/gif', 'image/jpeg', 'image/png', 'image/svg+xml', 'image/webp', 'image/x-icon',
+]);
+const workspacePreviewPolicy = "default-src 'none'; script-src 'none'; style-src 'unsafe-inline' blob:; " +
+  "img-src blob:; font-src blob:; form-action 'none'; base-uri 'none'";
+
+function workspacePreviewURL(value, base) {
+  const target = new URL(value, base);
+  if (target.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(target.hostname) ||
+      target.port !== base.port || target.username || target.password || target.pathname.startsWith('//')) {
+    throw Error('The address leaves the selected guest origin');
+  }
+  target.hostname = '127.0.0.1';
+  return target;
+}
+
+async function workspacePreviewFetch(url, job) {
+  for (let redirects = 0; redirects <= 4; redirects++) {
+    job.signal.throwIfAborted();
+    if (++job.requests > 48) throw Error('Preview exceeds 48 requests');
+    const reply = await workspaceTool('preview', {
+      port: Number(url.port || 80),
+      path: url.pathname + url.search,
+    }, { limit: 8 * MiB + 4096, timeout: 16000, signal: job.signal });
+    const header = await reply.slice(0, 4096).text();
+    const line = header.indexOf('\n');
+    if (line < 0) throw Error('Invalid guest response');
+    const { status, type, location } = JSON.parse(header.slice(0, line));
+    if (status >= 300 && status < 400 && location) {
+      url = workspacePreviewURL(location, url);
+      continue;
+    }
+    const body = reply.slice(line + 1, undefined, type);
+    job.loaded += body.size;
+    if (job.loaded > 24 * MiB) throw Error('Preview exceeds 24 MiB');
+    return { status, type, body, url };
+  }
+  throw Error('The guest server redirected too many times');
+}
+
+function workspacePreviewBlob(blob, job) {
+  const url = URL.createObjectURL(blob);
+  job.urls.push(url);
+  return url;
+}
+
+// The template is inert. Only sanitized nodes reach the script-disabled iframe.
+async function renderWorkspacePreview(reply, job) {
+  const template = document.createElement('template');
+  const cache = new Map();
+  async function resource(value, base, kind) {
+    try {
+      const target = workspacePreviewURL(value, base);
+      target.hash = '';
+      const key = target.href + ' ' + kind;
+      if (!cache.has(key)) {
+        cache.set(key, (async () => {
+          const asset = await workspacePreviewFetch(target, job);
+          if (asset.status < 200 || asset.status >= 300) throw Error('Resource is unavailable');
+          if (kind === 'css' && asset.type === 'text/css') {
+            return workspacePreviewBlob(new Blob([await css(await asset.body.text(), asset.url)], { type: 'text/css' }), job);
+          }
+          if (kind !== 'css' && (workspacePreviewImages.has(asset.type) ||
+              (kind === 'style' && /^font\/woff2?$/.test(asset.type)))) {
+            return workspacePreviewBlob(asset.body, job);
+          }
+          throw Error('Resource type is unavailable');
+        })());
+      }
+      return await cache.get(key);
+    } catch {
+      job.signal.throwIfAborted();
+      job.missing = true;
+      return '';
+    }
+  }
+
+  async function css(text, base) {
+    let output = '', offset = 0;
+    for (const match of text.matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)/gi)) {
+      output += text.slice(offset, match.index);
+      const url = await resource(match[1] ?? match[2] ?? match[3], base, 'style');
+      output += url ? 'url("' + url + '")' : 'none';
+      offset = match.index + match[0].length;
+    }
+    return output + text.slice(offset);
+  }
+
+  if (['text/html', 'application/xhtml+xml'].includes(reply.type)) {
+    const input = await reply.body.text();
+    template.innerHTML = input;
+    const elements = template.content.querySelectorAll('*');
+    if (elements.length > 10000) throw Error('The page contains too many elements to preview');
+    if (template.content.querySelector('script, iframe, form')) job.inactive = true;
+    for (const element of elements) {
+      job.signal.throwIfAborted();
+      if (!template.content.contains(element)) continue;
+      const name = element.localName;
+      if (element.namespaceURI !== 'http://www.w3.org/1999/xhtml' || !workspacePreviewTags.has(name)) {
+        element.remove();
+        continue;
+      }
+      const href = element.getAttribute('href');
+      const src = element.getAttribute('src');
+      const stylesheet = name === 'link' && element.rel.toLowerCase() === 'stylesheet';
+      for (const attribute of [...element.attributes]) {
+        if (!workspacePreviewAttributes.has(attribute.name) && !attribute.name.startsWith('aria-')) {
+          element.removeAttribute(attribute.name);
+        }
+      }
+      if (element.hasAttribute('style')) {
+        element.setAttribute('style', await css(element.getAttribute('style'), reply.url));
+      }
+      if (name === 'style') {
+        element.textContent = (await css(element.textContent, reply.url)).replaceAll('<', '\\3c ');
+      } else if (name === 'link') {
+        const url = href && stylesheet && await resource(href, reply.url, 'css');
+        if (url) { element.rel = 'stylesheet'; element.href = url; }
+        else element.remove();
+      } else if (name === 'img' && src) {
+        const url = await resource(src, reply.url, 'image');
+        if (url) element.src = url;
+      } else if (name === 'a' && href) {
+        try {
+          const target = workspacePreviewURL(href, reply.url);
+          element.href = 'about:srcdoc';
+          element.dataset.previewTarget = target.href;
+        } catch { /* External link labels remain readable. */ }
+      }
+    }
+  } else if (reply.type.startsWith('text/') || reply.type === 'application/json' || reply.type.endsWith('+json')) {
+    const text = document.createElement('pre');
+    text.textContent = await reply.body.text();
+    template.content.append(text);
+  } else if (workspacePreviewImages.has(reply.type)) {
+    const image = document.createElement('img');
+    image.src = workspacePreviewBlob(reply.body, job);
+    template.content.append(image);
+  } else {
+    throw Error('The response format cannot be displayed in this preview');
+  }
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta http-equiv="Content-Security-Policy" content="' + workspacePreviewPolicy + '">' +
+    '<style>img{max-width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body>' +
+    template.innerHTML + '</body></html>';
+}
+
+function installWorkspacePreview() {
+  const dialog = byId('workspace-preview-dialog');
+  const form = byId('workspace-preview-form');
+  const port = byId('workspace-preview-port');
+  const path = byId('workspace-preview-path');
+  const frame = byId('workspace-preview-frame');
+  const result = byId('workspace-preview-status');
+  const back = byId('workspace-preview-back');
+  const refresh = byId('workspace-preview-refresh');
+  const history = [];
+  let pending, screen;
+
+  function release(job) {
+    for (const url of job.urls) URL.revokeObjectURL(url);
+    job.urls.length = 0;
+  }
+
+  function update() {
+    back.disabled = !!pending || !history.length;
+    refresh.disabled = !!pending || !screen;
+  }
+
+  async function open(url, record = true) {
+    if (pending) pending.controller.abort();
+    const controller = new AbortController();
+    const job = { controller, signal: controller.signal, urls: [], requests: 0, loaded: 0, missing: false, inactive: false };
+    pending = job;
+    update();
+    result.textContent = 'Connecting to the guest server…';
+    try {
+      const reply = await workspacePreviewFetch(url, job);
+      const html = await renderWorkspacePreview(reply, job);
+      job.signal.throwIfAborted();
+      if (screen) {
+        if (record && screen.url.href !== reply.url.href) history.push(screen.url);
+        release(screen);
+      }
+      screen = { url: reply.url, urls: job.urls };
+      port.value = reply.url.port || '80';
+      path.value = reply.url.pathname + reply.url.search + reply.url.hash;
+      frame.srcdoc = html;
+      frame.hidden = false;
+      result.textContent = 'HTTP ' + reply.status +
+        (job.inactive ? ' · Static preview' : '') + (job.missing ? ' · Some resources unavailable' : '');
+    } catch (error) {
+      release(job);
+      if (!job.signal.aborted) result.textContent = error.message;
+    } finally {
+      if (pending === job) { pending = undefined; update(); }
+    }
+  }
+
+  frame.addEventListener('load', () => {
+    const view = frame.contentDocument;
+    if (!view || !screen) return;
+    function scrollToFragment(hash) {
+      if (!hash) return;
+      try { view.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView(); } catch {}
+    }
+    view.addEventListener('click', event => {
+      const link = event.target.closest?.('a[data-preview-target]');
+      if (!link) return;
+      event.preventDefault();
+      const target = workspacePreviewURL(link.dataset.previewTarget, screen.url);
+      if (target.pathname === screen.url.pathname && target.search === screen.url.search && target.hash) {
+        scrollToFragment(target.hash);
+      } else void open(target);
+    });
+    scrollToFragment(screen.url.hash);
+  });
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    try {
+      const number = Number(port.value);
+      if (!Number.isInteger(number) || number < 1 || number > 65535 || number === 18791) {
+        throw Error('Choose an HTTP port other than the workspace gateway port');
+      }
+      if (!path.value.startsWith('/') || path.value.startsWith('//')) throw Error('Enter a path starting with /');
+      const base = new URL('http://127.0.0.1:' + number);
+      void open(workspacePreviewURL(path.value, base));
+    } catch (error) { result.textContent = error.message; }
+  });
+  back.addEventListener('click', () => { if (history.length) void open(history.pop(), false); });
+  refresh.addEventListener('click', () => { if (screen) void open(screen.url, false); });
+  byId('open-workspace-preview').addEventListener('click', () => dialog.showModal());
+  dialog.addEventListener('close', () => {
+    pending?.controller.abort();
+    pending = undefined;
+    if (screen) release(screen);
+    screen = undefined;
+    history.length = 0;
+    frame.removeAttribute('srcdoc');
+    frame.hidden = true;
+    result.textContent = '';
+    update();
+  });
+}
+
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
+let updatePackControls = () => {};
 let networkState = 'OFFLINE';
 let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
@@ -3957,6 +4498,8 @@ function updateControls() {
   byId('network-settings').disabled = !enabled;
   byId('workspace-storage').disabled = !workspaceReady;
   for (const id of ['upload-files', 'share-workspace', 'connection-sharing']) byId(id).disabled = !workspaceReady;
+  for (const id of ['open-workspace-files', 'open-workspace-preview', 'open-workspace-packs']) byId(id).disabled = !workspaceReady;
+  updatePackControls();
   byId('storage-protect').disabled = !workspaceStorage || !navigator.storage?.persist;
 }
 
@@ -4005,12 +4548,7 @@ function download({ metadata, tar }) {
   if (!tar.size) throw Error('This workspace has no filesystem snapshot');
   const safe = { ...snapshotMetadata(metadata.name, true), createdAt: metadata.createdAt, bytes: metadata.bytes, sha256: metadata.sha256 };
   const blob = packageSnapshot(safe, tar);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.download = metadata.name.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 64) + '.pblinux';
-  link.href = url;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  workspaceDownload(blob, metadata.name.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 64) + '.pblinux');
 }
 
 async function restartWith(entry) {
@@ -4084,6 +4622,7 @@ async function prepareGuest(vm) {
   await guestExec(vm, 'mkdir -p ' + workspaceGroup + ' && test -f ' + workspaceGroup + '/cgroup.freeze');
   await egress.setup(vm);
   await guestExec(vm, 'cat > ' + proxyRoot + '/proxy.py', { input: proxyProgram });
+  await guestExec(vm, 'cat > ' + proxyRoot + '/workspace-tools.py', { input: workspaceToolsProgram });
   if (growthAllowed) await permitWorkspaceGrowth(vm);
   if (startup) {
     const restore = await vm.spawn('/bin/sh', ['/mnt/oci/bin/docker', 'prepare-restore'], { pty: false });
@@ -4238,6 +4777,9 @@ async function networkCommand(context) {
 }
 
 function installUI() {
+  installWorkspaceFiles();
+  installWorkspacePreview();
+  updatePackControls = installWorkspacePacks();
   const menus = new Map([
     [byId('workspace-settings'), byId('workspace-actions')],
     [byId('network-settings'), byId('connection-menu')],

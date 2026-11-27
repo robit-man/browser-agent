@@ -10,6 +10,8 @@ The bundled cloudflared can validate local ingress rules. Running a Cloudflare T
 
 Use `apk add` for Alpine system packages and `npm install` for JavaScript dependencies. APT manages Debian packages. [Alpine packages](https://pkgs.alpinelinux.org/packages?branch=v3.24&arch=aarch64) · [Debian APT](https://wiki.debian.org/Apt/)
 
+The **Workspace** menu includes **Files** for downloads and folder ZIPs, **Preview server** for static or server-rendered guest HTTP pages, and **Tool packs** for installing shell utilities or a native C/C++ toolchain. To try the preview, run `python3 -m http.server 8000 --bind 127.0.0.1` in the guest and open port 8000. [Workspace tools specification](docs/WORKSPACE-TOOLS.md)
+
 ## Terminals
 
 Use **+** to open a shell and the upper-left chevron to show the session sidebar. Each Alpine terminal has its own shell and scrollback in the same running container. Drag a session or **+** onto a pane to dock it. Drag a divider or focus it and press an arrow key to resize. Click the pane title to adjust its text size. The fork button opens a shell in the pane's last reported working directory. Minimize keeps the shell running in the sidebar. Closing a session ends its shell after confirmation.

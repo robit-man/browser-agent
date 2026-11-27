@@ -1,5 +1,6 @@
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
+let updatePackControls = () => {};
 let networkState = 'OFFLINE';
 let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
@@ -156,6 +157,8 @@ function updateControls() {
   byId('network-settings').disabled = !enabled;
   byId('workspace-storage').disabled = !workspaceReady;
   for (const id of ['upload-files', 'share-workspace', 'connection-sharing']) byId(id).disabled = !workspaceReady;
+  for (const id of ['open-workspace-files', 'open-workspace-preview', 'open-workspace-packs']) byId(id).disabled = !workspaceReady;
+  updatePackControls();
   byId('storage-protect').disabled = !workspaceStorage || !navigator.storage?.persist;
 }
 
@@ -204,12 +207,7 @@ function download({ metadata, tar }) {
   if (!tar.size) throw Error('This workspace has no filesystem snapshot');
   const safe = { ...snapshotMetadata(metadata.name, true), createdAt: metadata.createdAt, bytes: metadata.bytes, sha256: metadata.sha256 };
   const blob = packageSnapshot(safe, tar);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.download = metadata.name.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 64) + '.pblinux';
-  link.href = url;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  workspaceDownload(blob, metadata.name.replace(/[^a-z0-9_-]+/gi, '-').slice(0, 64) + '.pblinux');
 }
 
 async function restartWith(entry) {
@@ -283,6 +281,7 @@ async function prepareGuest(vm) {
   await guestExec(vm, 'mkdir -p ' + workspaceGroup + ' && test -f ' + workspaceGroup + '/cgroup.freeze');
   await egress.setup(vm);
   await guestExec(vm, 'cat > ' + proxyRoot + '/proxy.py', { input: proxyProgram });
+  await guestExec(vm, 'cat > ' + proxyRoot + '/workspace-tools.py', { input: workspaceToolsProgram });
   if (growthAllowed) await permitWorkspaceGrowth(vm);
   if (startup) {
     const restore = await vm.spawn('/bin/sh', ['/mnt/oci/bin/docker', 'prepare-restore'], { pty: false });
@@ -437,6 +436,9 @@ async function networkCommand(context) {
 }
 
 function installUI() {
+  installWorkspaceFiles();
+  installWorkspacePreview();
+  updatePackControls = installWorkspacePacks();
   const menus = new Map([
     [byId('workspace-settings'), byId('workspace-actions')],
     [byId('network-settings'), byId('connection-menu')],

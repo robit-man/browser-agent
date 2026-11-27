@@ -260,3 +260,13 @@ The browser suite exercises JSON processing, patching, a Make target, file ident
 The suite passed on the Cloudflare preview. A snapshot with the verified cloudflared binary passed validation. Modifying that binary without changing its size, or adding a cloudflared credential file, caused validation to reject the archive.
 
 Host version `be03d733-4b97-49f3-87dc-7bd5cf81f569` serves production at 100%. The tested HTML has SHA-256 `ce49b94b00b1b2deb153741d42a9dd1f25044e105c4bdfd51d6b661199b5f148`. The rollback host version is `f88d4559-db8f-47c1-916a-30bade311c78`.
+
+## Workspace files, previews, and tool packs
+
+The [specification](../docs/WORKSPACE-TOOLS.md) describes the three controls in the Workspace menu. Chromium verified the downloaded file and ZIP contents, nested navigation, symlinks and special entries. The preview tests exercised CSS, images, local links, refresh, JSON, HTTP errors, and rejection of external redirects. Guest scripts and remote assets were excluded. The file and preview tests passed on the hosted preview, from the standalone HTML, and in Chromium mobile emulation.
+
+The authorized browser fixture installed both packs, compiled and ran a C program, and saved the workspace. The standalone HTML is 103,106,881 bytes.
+
+Host version `109debb2-aeaf-48e7-b6b0-b9223bf09881` serves production at 100%. Production and the preview matched the standalone HTML with SHA-256 `7c001501a55c5cb69323c94bb4ef78339919ad5f193152dadbf4113923651b87`. The rollback host version is `be03d733-4b97-49f3-87dc-7bd5cf81f569`.
+
+Production Chromium passed the file and preview suites. It installed both packs through approved public networking, exercised the binaries, compiled and ran a C program, saved, and verified the binaries and installed-state labels after reload.

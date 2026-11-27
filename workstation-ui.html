@@ -387,7 +387,7 @@ body { font: 400 1rem/1.4 system-ui, sans-serif; }
   box-shadow: 0 8px 28px #000a;
 }
 #workspace-actions, #connection-menu { top: calc(max(5px, env(safe-area-inset-top)) + 44px); right: 8px; }
-#workspace-actions { right: 52px; }
+#workspace-actions { right: 52px; max-height: calc(var(--viewport-height, 100dvh) - 64px); overflow-y: auto; }
 #connection-menu { padding: 12px; width: min(330px, calc(100vw - 16px)); gap: 8px; }
 #connection-menu h2, dialog h2 { font-size: .9375rem; font-weight: 650; margin: 0; }
 #connection-menu p, #save-status, #storage-usage { margin: 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
@@ -426,6 +426,26 @@ dialog button:hover:not(:disabled), #connection-menu button:hover:not(:disabled)
 dialog input, dialog select, #term-paste-field { font-size: 16px; min-width: 0; }
 dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
 .dialog-actions, .share-heading, .share-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap); }
+#workspace-files-dialog, #workspace-packs-dialog { width: min(calc(100vw - 24px), 520px); }
+#workspace-preview-dialog { width: min(calc(100vw - 24px), 960px); }
+#workspace-files-path { display: block; margin-block: 8px; overflow-wrap: anywhere; }
+#workspace-files-list { max-height: min(44dvh, 420px); list-style: none; padding: 0; overflow-y: auto; margin: 8px 0; }
+#workspace-files-list li, .workspace-pack-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  border-bottom: 1px solid var(--edge); min-height: 35px; padding: 4px 2px;
+}
+#workspace-files-list button, #workspace-files-list span { overflow-wrap: anywhere; min-width: 0; text-align: start; }
+#workspace-files-list button { border: 0; background: transparent; }
+#workspace-files-list small, .workspace-pack-row p { color: var(--muted); }
+#workspace-files-list small { flex: none; }
+#workspace-preview-form { grid-template-columns: 6em minmax(0, 1fr) auto; align-items: end; }
+#workspace-preview-status { display: block; margin-block: 8px; }
+#workspace-preview-frame { width: 100%; height: min(58dvh, 640px); border: 1px solid var(--edge); background: white; }
+#workspace-packs-log {
+  max-height: 28dvh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: .75rem/1.45 ui-monospace, monospace; color: var(--muted);
+}
+.workspace-pack-row p { margin: 2px 0 0; }
 .share-heading { justify-content: space-between; }
 .share-heading h2 { margin: 0; }
 .share-heading .icon-button { width: 34px; height: 34px; min-height: 0; padding: 0; background: transparent; border-color: transparent; }
@@ -530,6 +550,8 @@ dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
   <div id="workspace-actions" aria-label="Workspace actions" hidden>
     <button id="split-right" disabled>Split right</button><button id="split-down" disabled>Split down</button>
     <button id="share-workspace" disabled>Terminal sharing</button><hr>
+    <button id="open-workspace-files" disabled>Files</button><button id="open-workspace-preview" disabled>Preview server</button>
+    <button id="open-workspace-packs" disabled>Tool packs</button><hr>
     <button id="upload-files" disabled>Upload files</button><button id="save-state" disabled>Save workspace</button><button id="export-state" disabled>Export snapshot</button>
     <button id="import-state" disabled>Import snapshot</button><button id="snapshots" disabled>Snapshots</button><button id="workspace-storage" disabled>Storage and autosave</button><hr>
     <button id="maintenance-shell" disabled>Maintenance shell</button><button id="reset-state" disabled>Reset workspace</button>
@@ -551,6 +573,37 @@ dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
   <input id="term-paste-field" placeholder="Paste here" aria-label="Paste text into the terminal" hidden>
 </div>
 <input id="snapshot-file" type="file" accept=".pblinux,application/octet-stream" hidden aria-label="Import filesystem snapshot">
+<dialog id="workspace-files-dialog" aria-labelledby="workspace-files-title">
+  <h2 id="workspace-files-title">Files</h2>
+  <div class="dialog-actions"><button id="workspace-files-up" disabled>Up</button><button id="workspace-files-refresh">Refresh</button>
+    <button id="workspace-files-upload">Upload to inbox</button><button id="workspace-files-zip" disabled>Download folder ZIP</button></div>
+  <code id="workspace-files-path">/workspace</code><output id="workspace-files-status" role="status"></output>
+  <ul id="workspace-files-list" aria-label="Workspace files"></ul>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="workspace-preview-dialog" aria-labelledby="workspace-preview-title">
+  <h2 id="workspace-preview-title">Preview server</h2>
+  <p>Start a web server in Alpine. This preview displays HTML, CSS, images, and text.</p>
+  <form id="workspace-preview-form">
+    <label>Port <input id="workspace-preview-port" type="number" min="1" max="65535" value="8000" required></label>
+    <label>Path <input id="workspace-preview-path" value="/" maxlength="8192" required autocapitalize="off" spellcheck="false"></label>
+    <button>Open</button>
+  </form>
+  <output id="workspace-preview-status" role="status"></output>
+  <iframe id="workspace-preview-frame" title="Guest web preview" sandbox="allow-same-origin" referrerpolicy="no-referrer" hidden></iframe>
+  <div class="dialog-actions"><button id="workspace-preview-back" disabled>Back</button><button id="workspace-preview-refresh" disabled>Refresh</button></div>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
+<dialog id="workspace-packs-dialog" aria-labelledby="workspace-packs-title">
+  <h2 id="workspace-packs-title">Tool packs</h2>
+  <p>Install tools from Alpine's approved repositories, then save your workspace to keep them.</p>
+  <div class="workspace-pack-row"><div><strong>Shell tools</strong><p>fzf and ShellCheck</p></div>
+    <button id="workspace-pack-shell" aria-label="Install Shell tools">Install</button></div>
+  <div class="workspace-pack-row"><div><strong>Native build</strong><p>GCC, C++, package config, and Linux headers</p></div>
+    <button id="workspace-pack-native" aria-label="Install Native build">Install</button></div>
+  <pre id="workspace-packs-log" role="status" tabindex="0"></pre>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
 <dialog id="storage-dialog" aria-labelledby="storage-title">
   <h2 id="storage-title">Storage and autosave</h2><p><output id="storage-usage">Checking storage…</output></p>
   <label>Autosave <select id="autosave" disabled><option value="0">Off</option><option value="30">30 sec</option><option value="60">1 min</option><option value="180">3 min</option></select></label>
