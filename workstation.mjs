@@ -1,6 +1,7 @@
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
 let updatePackControls = () => {};
+let agentWorkspaceViews;
 let networkState = 'OFFLINE';
 let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
@@ -436,9 +437,11 @@ async function networkCommand(context) {
 }
 
 function installUI() {
-  installWorkspaceFiles();
-  installWorkspacePreview();
-  updatePackControls = installWorkspacePacks();
+  const files = installWorkspaceFiles();
+  const preview = installWorkspacePreview();
+  const packs = installWorkspacePacks();
+  agentWorkspaceViews = { files, preview, packs: packs.open };
+  updatePackControls = packs.update;
   const menus = new Map([
     [byId('workspace-settings'), byId('workspace-actions')],
     [byId('network-settings'), byId('connection-menu')],
@@ -713,6 +716,7 @@ function adaptEntry(source) {
     ['commands:{_oci:b,_agent:w}});let e=new lS(l,S)',
       'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
     ['memory:new Ux,documentModel:n', 'memory:new Ux(workstation.agentMemory),documentModel:n'],
+    ['d=new fT(u,o,y)', 'd=new fT(workstation.registerAgentTools(u),o,y)'],
     ['await u.tools.ensure().catch(e=>{f=e})',
       'await u.tools.ensure();await workstation.prepareTerminal(l)'],
     ['focus(){i.focus()},async importFile', 'focus(){terminalManager.focus()},async importFile'],
@@ -729,12 +733,15 @@ function adaptEntry(source) {
       'agent network status | test | fetch URL [PATH] | disable'],
   ];
   for (const [anchor, replacement] of hooks) source = replaceRequired(source, anchor, replacement);
-  return source;
+  return adaptWorkspaceModelRegistry(source);
 }
 
 globalThis.workstation = {
   alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, ready, egress,
   disks: workspaceDisks,
+  models: workspaceAgentModels,
+  formatModels: formatWorkspaceAgentModels,
+  registerAgentTools(agent) { return registerWorkspaceAgentTools(agent, agentWorkspaceViews); },
   async attachTerminals(...args) { return runtime.terminals = await attachTerminals(...args); },
   activeTerminal() { return runtime?.terminals?.active?.term; },
   get legacy() { return !!runtime?.legacy; },

@@ -52,6 +52,20 @@ function workspaceTool(action, input, options) {
   return workspaceProcess(['python3', '-I', proxyRoot + '/workspace-tools.py', action, JSON.stringify(input)], options);
 }
 
+async function workspaceFolderEntries(path, signal) {
+  const data = await workspaceTool('list', path, { limit: 4 * MiB, signal });
+  return JSON.parse(await data.text());
+}
+
+async function workspacePacksStatus(signal) {
+  const names = [...new Set([...workspaceToolPacks.values()].flatMap(pack => pack.packages))];
+  const reply = await workspaceProcess(['apk', 'list', '--quiet', '--installed', ...names], { signal });
+  const present = new Set((await reply.text()).trim().split('\n'));
+  return Array.from(workspaceToolPacks, ([id, { name, packages }]) => ({
+    id, name, packages, installed: packages.every(packageName => present.has(packageName)),
+  }));
+}
+
 function workspaceDownload(blob, name) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -99,10 +113,9 @@ function installWorkspaceFiles() {
     });
   }
 
-  function listFolder(path) {
+  function listFolder(path, entriesFromAgent) {
     void action('Reading folder…', async signal => {
-      const result = await workspaceTool('list', path, { limit: 4 * MiB, signal });
-      const entries = JSON.parse(await result.text());
+      const entries = entriesFromAgent ?? await workspaceFolderEntries(path, signal);
       signal.throwIfAborted();
       directory = path;
       current.textContent = ['/workspace', ...path].join('/');
@@ -138,15 +151,17 @@ function installWorkspaceFiles() {
     });
   }
 
-  byId('open-workspace-files').addEventListener('click', () => {
-    dialog.showModal();
-    listFolder(directory);
-  });
+  function show(folder = directory, entries) {
+    if (!dialog.open) dialog.showModal();
+    listFolder(folder, entries);
+  }
+  byId('open-workspace-files').addEventListener('click', () => show());
   byId('workspace-files-refresh').addEventListener('click', () => listFolder(directory));
   byId('workspace-files-upload').addEventListener('click', () => byId('files').click());
   up.addEventListener('click', () => listFolder(directory.slice(0, -1)));
   zip.addEventListener('click', () => getDownload(directory, true));
   dialog.addEventListener('close', () => controller?.abort());
+  return show;
 }
 
 function installWorkspacePacks() {
@@ -165,15 +180,12 @@ function installWorkspacePacks() {
 
   async function scan() {
     const request = ++revision;
-    const packageNames = [...new Set([...workspaceToolPacks.values()].flatMap(pack => pack.packages))];
     try {
-      const reply = await workspaceProcess(['apk', 'list', '--quiet', '--installed', ...packageNames]);
-      const present = new Set((await reply.text()).trim().split('\n'));
+      const packs = await workspacePacksStatus();
       if (revision !== request) return;
-      for (const [id, pack] of workspaceToolPacks) {
-        if (pack.packages.every(name => present.has(name))) {
-          installed.add(id);
-        } else installed.delete(id);
+      for (const pack of packs) {
+        if (pack.installed) installed.add(pack.id);
+        else installed.delete(pack.id);
       }
     } catch (error) {
       if (revision === request) log.textContent = error.message;
@@ -220,11 +232,12 @@ function installWorkspacePacks() {
       }).then(update);
     });
   }
-  byId('open-workspace-packs').addEventListener('click', () => {
-    dialog.showModal();
+  function open() {
+    if (!dialog.open) dialog.showModal();
     update();
     if (!installing && !busy) void scan();
-  });
+  }
+  byId('open-workspace-packs').addEventListener('click', open);
   // Manual saves and autosave can start while this dialog remains open.
-  return update;
+  return { open, update };
 }

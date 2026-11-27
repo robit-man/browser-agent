@@ -23,6 +23,16 @@ function workspacePreviewURL(value, base) {
   return target;
 }
 
+function workspacePreviewTarget(port, path) {
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 18791) {
+    throw Error('Choose an HTTP port other than the workspace gateway port');
+  }
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) {
+    throw Error('Enter a path starting with /');
+  }
+  return workspacePreviewURL(path, new URL('http://127.0.0.1:' + port));
+}
+
 async function workspacePreviewFetch(url, job) {
   for (let redirects = 0; redirects <= 4; redirects++) {
     job.signal.throwIfAborted();
@@ -176,10 +186,12 @@ function installWorkspacePreview() {
     refresh.disabled = !!pending || !screen;
   }
 
-  async function open(url, record = true) {
+  async function open(url, { record = true, signal } = {}) {
+    signal?.throwIfAborted();
     if (pending) pending.controller.abort();
     const controller = new AbortController();
-    const job = { controller, signal: controller.signal, urls: [], requests: 0, loaded: 0, missing: false, inactive: false };
+    const active = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+    const job = { controller, signal: active, urls: [], requests: 0, loaded: 0, missing: false, inactive: false };
     pending = job;
     update();
     result.textContent = 'Connecting to the guest server…';
@@ -198,9 +210,11 @@ function installWorkspacePreview() {
       frame.hidden = false;
       result.textContent = 'HTTP ' + reply.status +
         (job.inactive ? ' · Static preview' : '') + (job.missing ? ' · Some resources unavailable' : '');
+      return { status: reply.status, port: Number(port.value), path: path.value };
     } catch (error) {
       release(job);
       if (!job.signal.aborted) result.textContent = error.message;
+      return { error: error.message };
     } finally {
       if (pending === job) { pending = undefined; update(); }
     }
@@ -226,18 +240,11 @@ function installWorkspacePreview() {
   });
   form.addEventListener('submit', event => {
     event.preventDefault();
-    try {
-      const number = Number(port.value);
-      if (!Number.isInteger(number) || number < 1 || number > 65535 || number === 18791) {
-        throw Error('Choose an HTTP port other than the workspace gateway port');
-      }
-      if (!path.value.startsWith('/') || path.value.startsWith('//')) throw Error('Enter a path starting with /');
-      const base = new URL('http://127.0.0.1:' + number);
-      void open(workspacePreviewURL(path.value, base));
-    } catch (error) { result.textContent = error.message; }
+    try { void open(workspacePreviewTarget(Number(port.value), path.value)); }
+    catch (error) { result.textContent = error.message; }
   });
-  back.addEventListener('click', () => { if (history.length) void open(history.pop(), false); });
-  refresh.addEventListener('click', () => { if (screen) void open(screen.url, false); });
+  back.addEventListener('click', () => { if (history.length) void open(history.pop(), { record: false }); });
+  refresh.addEventListener('click', () => { if (screen) void open(screen.url, { record: false }); });
   byId('open-workspace-preview').addEventListener('click', () => dialog.showModal());
   dialog.addEventListener('close', () => {
     pending?.controller.abort();
@@ -250,4 +257,10 @@ function installWorkspacePreview() {
     result.textContent = '';
     update();
   });
+  return async (guestPort, guestPath, signal) => {
+    const url = workspacePreviewTarget(guestPort, guestPath);
+    signal?.throwIfAborted();
+    if (!dialog.open) dialog.showModal();
+    return open(url, { signal });
+  };
 }

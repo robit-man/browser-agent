@@ -12,6 +12,14 @@ Use `apk add` for Alpine system packages and `npm install` for JavaScript depend
 
 The **Workspace** menu includes **Files** for downloads and folder ZIPs, **Preview server** for static or server-rendered guest HTTP pages, and **Tool packs** for installing shell utilities or a native C/C++ toolchain. To try the preview, run `python3 -m http.server 8000 --bind 127.0.0.1` in the guest and open port 8000. [Workspace tools specification](docs/WORKSPACE-TOOLS.md)
 
+## Local WebGPU agent
+
+Run `agent tools` to see the tools registered at startup. The agent can list workspace files, open a folder for download, preview a running guest HTTP server, and check which Alpine tool packs are installed.
+
+Run `agent models` for the 25 profiles and their download or cache sizes. Use `agent model use qwen-coder-3b` to select a coding model, `agent model use llama32-1b` for a smaller general model, or `agent model verify gemma3-1b` to check real token generation. The catalog includes Qwen3, Qwen3.5, Qwen2.5-Coder, Llama 3.x, Hermes 3, and text-only Gemma 3. It also includes an experimental Qwen3.8 27B profile that pages weights and requires substantial device resources. [Pinned checkpoint registry](workstation-models.mjs)
+
+The model commands run inference in the browser. On-demand downloads come from Hugging Face and use browser storage. Start with a model under 2B parameters on a phone or a device with limited memory.
+
 ## Terminals
 
 Use **+** to open a shell and the upper-left chevron to show the session sidebar. Each Alpine terminal has its own shell and scrollback in the same running container. Drag a session or **+** onto a pane to dock it. Drag a divider or focus it and press an arrow key to resize. Click the pane title to adjust its text size. The fork button opens a shell in the pane's last reported working directory. Minimize keeps the shell running in the sidebar. Closing a session ends its shell after confirmation.

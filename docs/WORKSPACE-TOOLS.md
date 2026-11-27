@@ -27,6 +27,18 @@ All three features open from the Workspace menu. The Linux runtime and filesyste
 - Show the installed state for each pack and install only on request through Alpine's signed 3.24 repositories. Use the existing network authorization. Report errors and allow retries. The normal workspace save and reload workflow retains installed packs.
 - Check free space before installation and use the existing storage growth prompt when the estimated space is unavailable. Hold workspace saves while an installation is active so checkpoints contain a completed package transaction.
 
+## WebGPU agent tools
+
+The generation runner registers these functions at startup. `agent tools` shows the same schemas that the runner supplies to the selected model.
+
+| Function | Arguments | Behavior |
+| --- | --- | --- |
+| `workspace_files` | `action` of `list` or `open`, optional absolute `path` under `/workspace` | Return a bounded listing, or open Files so the user can choose a file or ZIP to download. |
+| `workspace_preview` | Guest HTTP `port` and optional `path` beginning with `/` | Open the existing isolated preview and return the final HTTP status and path. |
+| `workspace_tool_packs` | `action` of `list` or `open` | Report installed packs or open Tool Packs so the user can choose what to install. |
+
+The same guest path, preview origin, package approval, and storage rules apply through either the menu or the agent.
+
 ## Acceptance checks
 
 - Download a regular file and a ZIP and independently verify their contents. Exercise nested navigation, hidden files, symlinks, and names containing spaces or punctuation.

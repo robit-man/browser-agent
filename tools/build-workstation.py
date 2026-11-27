@@ -165,7 +165,8 @@ def main():
     guest_tools = json.dumps((ROOT / "workstation-guest-tools.py").read_text())
     code = inline_limits + "\n\nconst workspaceToolsProgram = " + guest_tools + ";\n\n" + "\n\n".join((ROOT / name).read_text().rstrip() for name in (
         "workstation-storage.mjs", "workstation-growth.mjs", "workstation-egress.mjs", "workstation-keyboard.mjs",
-        "workstation-share.mjs", "workstation-terminal.mjs", "workstation-tools.mjs", "workstation-preview.mjs", "workstation.mjs",
+        "workstation-share.mjs", "workstation-terminal.mjs", "workstation-tools.mjs", "workstation-preview.mjs",
+        "workstation-agent.mjs", "workstation-models.mjs", "workstation.mjs",
     ))
     if "</script" in code.lower():
         raise SystemExit("Inline JavaScript contains a closing script tag")

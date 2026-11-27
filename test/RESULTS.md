@@ -270,3 +270,17 @@ The authorized browser fixture installed both packs, compiled and ran a C progra
 Host version `109debb2-aeaf-48e7-b6b0-b9223bf09881` serves production at 100%. Production and the preview matched the standalone HTML with SHA-256 `7c001501a55c5cb69323c94bb4ef78339919ad5f193152dadbf4113923651b87`. The rollback host version is `be03d733-4b97-49f3-87dc-7bd5cf81f569`.
 
 Production Chromium passed the file and preview suites. It installed both packs through approved public networking, exercised the binaries, compiled and ran a C program, saved, and verified the binaries and installed-state labels after reload.
+
+## WebGPU agent tools and model catalog
+
+The standalone catalog grew from 7 to 25 profiles. The 18 added downloads use pinned Hugging Face revisions. Each reported its expected total size and returned browser CORS headers on a range request. The bundled GGUF parser validated the complete tensor directory and the expected model architecture for each, and the corresponding tokenizer encoded a test chat prompt.
+
+Chromium tested the terminal's `agent tools`, `agent models`, and alias and numeric model selection. A browser test supplied controlled model replies to the normal agent runner. Real calls entered Alpine, listed a guest directory, opened Files and Tool Packs, rendered a guest HTTP page, and rejected workspace traversal and the internal gateway port. The standalone Strands import smoke test reached the checkpoint request from the guest.
+
+Chromium's SwiftShader WebGPU adapter generated real model tokens from Qwen3 0.6B, Gemma 3 1B, Llama 3.2 1B, and Qwen2.5-Coder 1.5B. The guest verification commands took about 157, 187, 298, and 387 seconds respectively on software WebGPU, including the first download and model loading. A shader check reproduced SwiftShader returning `NaN` for large `tanh` inputs and confirmed finite results after bounding the argument in the Gemma GELU kernel. Larger profiles received header, tensor-layout, and tokenizer checks. Qwen3.8 27B remains experimental and pages weights within the adapter's 16 GiB budget.
+
+Run `node test/agent-workstation.mjs` against the fixture or set `WORKSTATION_TEST_ORIGIN` to a hosted build. For real token generation, set `WORKSTATION_TEST_WEBGPU=1` and optionally `WORKSTATION_TEST_MODEL` to a catalog alias. The inference test downloads the model if absent from browser storage.
+
+Cloudflare host version `423fb6d0-e530-41cc-a747-6759195c754f` serves production at 100%. The standalone HTML is 103,119,471 bytes, 12,590 bytes larger than the previous version. Production, the final preview, and a repeated local build matched SHA-256 `52e9a5e82c56da021daeffd97148303ac1a5645d49df5fec4f0d1b4c038e44d4`. The rollback host version is `109debb2-aeaf-48e7-b6b0-b9223bf09881`.
+
+Production Chromium passed tool discovery, the model list and selection, and all three workspace tool calls. The first live shell reached the Alpine diagnostics endpoint, GitHub through native Git, and npm without opening networking settings.

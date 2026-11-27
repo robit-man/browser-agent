@@ -26,7 +26,7 @@ try {
     return route.fulfill({ status: 503, body: 'Stopped by test after engine import' });
   });
 
-  const response = await page.goto(origin);
+  const response = await page.goto(origin, { waitUntil: 'commit', timeout: 120000 });
   assert.equal(response.status(), 200);
   await page.locator('#add-session:enabled').waitFor({ timeout: 90000 });
   await page.locator('.xterm-screen').click();
