@@ -20,6 +20,7 @@ CODE_END = "// workstation source end"
 ORIGINAL_UI = '  <div class="frame"><div id="terminal"></div><div id="boot">booting...</div><output id="transfer" role="status"></output></div>'
 ORIGINAL_ENTRY = "try { await import(await makeModule(entry)); }"
 DATA = re.compile(r'(<script id="browser-agent-data" type="application/json">)(.*?)(</script>)')
+DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\(\s*(?P<quote>["'`])(?P<path>\./[\w.-]+\.m?js)(?P=quote)\s*\)""")
 LOADER = """async function kernelModule(module) {
   const integrity = 'sha256-' + Uint8Array.fromHex('%s').toBase64();
   if (module.key) {
@@ -53,6 +54,34 @@ def replace_section(source, start, end, contents, original):
     first = source.index(start) + len(start)
     last = source.index(end, first)
     return source[:first] + "\n" + contents + "\n" + source[last:]
+
+
+def link_dynamic_imports(data):
+    """Use the embedded dependency URLs for lazy imports in Blob modules."""
+    modules = data["modules"]
+    payloads = data["payloads"]
+    changed = False
+    for name, module in modules.items():
+        if not name.endswith((".js", ".mjs")) or "key" not in module:
+            continue
+        key = module["key"]
+        source = gzip.decompress(base64.b64decode(payloads[key])).decode()
+        deps = module["deps"]
+        directory = name.rsplit("/", 1)[0]
+
+        def link(match):
+            target = directory + match["path"][1:]
+            if target not in modules:
+                raise SystemExit(f"Missing embedded module {target} imported by {name}")
+            if target not in deps:
+                deps.append(target)
+            return f'import("BROWSER_AGENT_ASSET_{deps.index(target)}_URL")'
+
+        linked = DYNAMIC_IMPORT.sub(link, source)
+        if linked != source:
+            payloads[key] = base64.b64encode(gzip.compress(linked.encode(), mtime=0)).decode()
+            changed = True
+    return changed
 
 
 def main():
@@ -97,6 +126,9 @@ def main():
                             "new Blob([name === entry ? workstation.adaptEntry(source) : source], { type: 'text/javascript' })")
         html = replace_once(html, "<title>Browser Agent</title>", "<title>Pointblank Linux</title>")
         html = replace_once(html, "Browser Agent could not start.", "Pointblank Linux could not start.")
+    match = DATA.search(html)
+    data = json.loads(match[2])
+    linked = link_dynamic_imports(data)
     if args.offline or args.kernel:
         if args.kernel:
             kernel = args.kernel.read_bytes()
@@ -105,11 +137,10 @@ def main():
                 kernel = response.read()
         if hashlib.sha256(kernel).hexdigest() != KERNEL_SHA256:
             raise SystemExit("The kernel must match the pinned SHA-256")
-        match = DATA.search(html)
-        data = json.loads(match[2])
         key = "workstation-offline-kernel"
         data["modules"][KERNEL]["key"] = key
         data["payloads"][key] = base64.b64encode(gzip.compress(kernel, mtime=0)).decode()
+    if linked or args.offline or args.kernel:
         html = html[:match.start(2)] + json.dumps(data, separators=(",", ":")) + html[match.end(2):]
     if args.gateway:
         tag = '<meta name="workstation-gateway" content="' + html_tools.escape(args.gateway.rstrip('/'), quote=True) + '">'

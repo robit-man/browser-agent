@@ -156,3 +156,11 @@ Median of three fresh headless Chromium launches per production build at 1440 ×
 | Startup | 9,931 ms | 10,030 ms |
 | Renderer RSS | 681 MiB | 684 MiB |
 | Terminal round trip | 100 ms | 105 ms |
+
+## Standalone Strands module loading
+
+The production release before this fix reproduced `Failed to resolve module specifier './engine-D1KTM5zF.js'` from `agent model verify strands` inside Alpine. The build now links lazy imports of embedded JavaScript chunks to the standalone dependency URLs.
+
+`node test/agent-imports.mjs` passed locally, on the Cloudflare preview, and on production. The regression supplies a test adapter and intercepts the first Strands checkpoint request after the engine import, so the result covers module loading through checkpoint retrieval. Desktop pane, mobile-emulation, and local offline boot checks passed on the rebuilt artifact.
+
+Cloudflare host version `169b3295-3b6d-4dde-af1e-1d3914654c16` serves the build at 100%. The HTML SHA-256 is `6cce9d6c3b9d382ddf056a875b5d034e7cae7fbe861f1c047809050030eb5ff9`. The previous host version `0e99745a-20e9-42d5-bf57-daefac4718d5` remains the rollback for this fix.
