@@ -213,7 +213,9 @@ The production Linux host serves version `291fa722-1a73-41f2-8797-bfa188c57359` 
 
 Firefox 157.0 and WebKit 26.5 booted the production Alpine guest and ran a shell command. The Chromium fixture suite passed native Git write operations and pull, regular persistence and snapshots, interruption and browser quota recovery, and IndexedDB fallback. The standalone HTML booted offline with Git, Node.js, npm, and APK and saved and restored a project. The Worker tests streamed a 257 MiB Git pack and confirmed that ordinary responses still stop at 64 MiB.
 
-The intermediate release confirmed a production GitHub clone and checkout of curl with a 133,798,865-byte pack. The rollback versions for the growth release are Linux host `7e5de842-874d-4919-8486-e454ab30d1ac` and private gateway `52cc1465-487d-4f9c-9be4-ec8b23708734`. Export any workspace above the intermediate release's snapshot limits before rolling back.
+The production growth release cloned and checked out `https://github.com/curl/curl.git` with native Git. The pack was 133,816,185 bytes. Git reported 3.36 MiB/s during transfer and resolved 244,702 deltas. The verified checkout completed about four minutes after page navigation in Chromium.
+
+The rollback versions for the growth release are Linux host `7e5de842-874d-4919-8486-e454ab30d1ac` and private gateway `52cc1465-487d-4f9c-9be4-ec8b23708734`. Export any workspace above the intermediate release's snapshot limits before rolling back.
 
 ```sh
 LARGE_GIT_FIXTURE=1 BROWSER_TEST_PORT=18735 node test/fixture.mjs
