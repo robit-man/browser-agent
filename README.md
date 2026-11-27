@@ -2,6 +2,12 @@
 
 Pointblank Linux boots a client-side Alpine 3.24 aarch64 workspace with Bash, Python, and the existing browser agent. The workspace opens in `/workspace`. Type `agent` for the interactive agent. **Maintenance shell** in the workspace menu opens the outer Linux shell and its Docker commands. Drop normal files on the terminal or use Ctrl+O to copy them to `/workspace/inbox`. Model weights are fetched separately when requested.
 
+## Development tools
+
+Fresh and reset workspaces include Git 2.54.1, Node.js 24.22.3, and npm 11.12.1. You can initialize a repository, create a Node project, and run local scripts as soon as the shell opens, including from a downloaded copy of the HTML. Saved and imported workspaces restore their own package set. To install these tools in an older workspace, run `apk add git git-init-template nodejs npm`.
+
+Use `apk add` for Alpine system packages and `npm install` for JavaScript dependencies. APT manages Debian packages. [Alpine packages](https://pkgs.alpinelinux.org/packages?branch=v3.24&arch=aarch64) · [Debian APT](https://wiki.debian.org/Apt/)
+
 ## Terminals
 
 Use **+** to open a shell and the upper-left chevron to show the session sidebar. Each Alpine terminal has its own shell and scrollback in the same running container. Drag a session or **+** onto a pane to dock it. Drag a divider or focus it and press an arrow key to resize. Click the pane title to adjust its text size. The fork button opens a shell in the pane's last reported working directory. Minimize keeps the shell running in the sidebar. Closing a session ends its shell after confirmation.
@@ -49,7 +55,7 @@ The bundled unkernel exposes `KernelInstance.snapshot()` and `createKernel({ res
 
 ## Authorized native networking
 
-[linux.pointblankllc.com](https://linux.pointblankllc.com/) boots with public networking enabled. Use native Git for public GitHub repositories and use curl or package managers for approved package sources. In a fresh Alpine workspace, install missing tools with `apk add git curl nodejs npm`. Saved workspaces retain installed packages.
+[linux.pointblankllc.com](https://linux.pointblankllc.com/) boots with public networking enabled. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
 
 For private Git or push, open the status dot's **Networking** dialog and enter the workspace egress key, a GitHub username, and a fine-grained token scoped to the authorized repository and Contents permissions. A repository-specific GitHub App installation token also works. The repository must allow writes in the authenticated gateway policy. GitHub applies the token's permissions and branch rules. [GitHub token permissions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
@@ -67,7 +73,14 @@ npx --yes wrangler@4.168.0 versions upload --config cloudflare/linux-host.toml
 npx --yes wrangler@4.168.0 versions deploy VERSION_ID@100% --yes --config cloudflare/linux-host.toml
 ```
 
-Production uses the existing `browser-agent` hosting Worker at `https://linux.pointblankllc.com` and a dedicated `pointblank-linux-network` Worker at `https://network.pointblankllc.com`. Preserve the app origin to preserve existing workspaces. The standalone HTML exceeds Cloudflare's 25 MiB per-asset limit. The host build splits the exact bytes into two assets and returns their concatenation as one fixed-length HTML response. The browser uses no separate kernel request. The optional `--kernel` argument verifies the pinned WASM when embedding a replacement. [Cloudflare asset limits](https://developers.cloudflare.com/workers/platform/limits/#static-assets)
+Production uses the existing `browser-agent` hosting Worker at `https://linux.pointblankllc.com` and a dedicated `pointblank-linux-network` Worker at `https://network.pointblankllc.com`. Preserve the app origin to preserve existing workspaces. The host build splits the exact HTML bytes into pieces under Cloudflare's 25 MiB per-asset limit. It streams them as one fixed-length HTML response. The optional `--kernel` argument verifies the pinned WASM when embedding a replacement. [Cloudflare asset limits](https://developers.cloudflare.com/workers/platform/limits/#static-assets)
+
+Ordinary builds reuse the embedded development layer. To refresh the layer, use Docker to resolve and verify packages from the Alpine 3.24 repositories for the guest architecture, then rebuild the HTML with the resulting archive. [Alpine aports](https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.24-stable)
+
+```sh
+python3 tools/build-development-layer.py /tmp/pointblank-development.tar.gz
+python3 tools/build-workstation.py --development-layer /tmp/pointblank-development.tar.gz --split-assets cloudflare/.release-assets
+```
 
 Deploy the same build to a staging host with an isolated egress Worker first. The build's `--gateway` option sets the staging gateway in a separate output HTML. Set staging's `WORKSTATION_ORIGINS` and the diagnostics binding to the staging host. The [release results](test/RESULTS.md) list the tested deployments and commands.
 

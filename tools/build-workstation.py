@@ -13,6 +13,20 @@ ROOT = Path(__file__).resolve().parents[1]
 KERNEL = "/assets/unkernel-B_9V5QvS.wasm"
 KERNEL_URL = "https://cdn.jsdelivr.net/npm/unkernel@0.2.0-261121-e69adda/dist/unkernel.wasm"
 KERNEL_SHA256 = "ea45c857c59259d3cb53d5e3801021adc68449d1190e80ca3e1a632764d8177b"
+PYTHON_IMAGE = "/oci/registry-1.docker.io_library_python_3.13-alpine/"
+DEVELOPMENT_IMAGE = "pointblank/workstation:3.24"
+DEVELOPMENT_KEY = "registry-1.docker.io_pointblank_workstation_3.24"
+ASSET_BYTES = 24 * 1024 * 1024
+DEVELOPMENT_NOTICE = """## Alpine development tools
+
+The default Alpine image includes Git and its templates (GPL-2.0-only),
+Node.js (MIT), npm (Artistic-2.0), and their dependencies from the signed
+Alpine 3.24 aarch64 repositories. Run `apk list --installed` to see the
+bundled versions, package origins, and licenses. Alpine publishes build
+recipes, patches, and corresponding source locations in aports.
+https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.24-stable
+
+"""
 UI_START = "<!-- workstation UI start -->"
 UI_END = "<!-- workstation UI end -->"
 CODE_START = "// workstation source start"
@@ -84,13 +98,44 @@ def link_dynamic_imports(data):
     return changed
 
 
+def embed_development_image(data, layer):
+    oci, payloads = data["oci"], data["payloads"]
+    meta = json.loads(base64.b64decode(payloads[oci[PYTHON_IMAGE + "meta.json"]]))
+    prefix = f"/oci/{DEVELOPMENT_KEY}/"
+    for base_layer in meta["layers"]:
+        file = base_layer["file"]
+        oci[prefix + file] = oci[PYTHON_IMAGE + file]
+    digest = "sha256:" + hashlib.sha256(layer).hexdigest()
+    file = "layer-development.tar.gz"
+    meta["layers"].append({"digest": digest, "size": len(layer), "file": file})
+    meta.update(image=DEVELOPMENT_IMAGE, safeKey=DEVELOPMENT_KEY, digest=digest)
+    oci[prefix + file] = "workstation-development-layer"
+    oci[prefix + "meta.json"] = "workstation-development-metadata"
+    payloads[oci[prefix + file]] = base64.b64encode(layer).decode()
+    payloads[oci[prefix + "meta.json"]] = base64.b64encode(json.dumps(meta, separators=(",", ":")).encode()).decode()
+
+
+def write_release_assets(directory, data):
+    directory.mkdir(parents=True, exist_ok=True)
+    count = (len(data) + ASSET_BYTES - 1) // ASSET_BYTES
+    names = {f"index-part-{index}.bin" for index in range(1, count + 1)}
+    for stale in directory.glob("index-part-*.bin"):
+        if stale.name not in names:
+            stale.unlink()
+    (directory / "index-length.txt").unlink(missing_ok=True)
+    (directory / "index-assets.json").write_text(json.dumps({"size": len(data), "parts": count}))
+    for index, offset in enumerate(range(0, len(data), ASSET_BYTES), 1):
+        (directory / f"index-part-{index}.bin").write_bytes(data[offset:offset + ASSET_BYTES])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "index.html")
     parser.add_argument("--offline", action="store_true", help="Embed the pinned Linux kernel for disconnected use")
     parser.add_argument("--kernel", type=Path, help="Use a local copy of the pinned kernel instead of downloading it")
     parser.add_argument("--gateway", help="Set the HTTPS egress URL for a staging artifact")
-    parser.add_argument("--split-assets", type=Path, help="Write the two Worker asset fragments")
+    parser.add_argument("--development-layer", type=Path, help="Embed a replacement Alpine development layer")
+    parser.add_argument("--split-assets", type=Path, help="Write Worker asset fragments below Cloudflare's per-file limit")
     args = parser.parse_args()
     if args.gateway and (not args.gateway.startswith("https://") or args.output.resolve() == ROOT / "index.html"):
         parser.error("set --gateway only on a separate staging HTML with an HTTPS gateway")
@@ -140,20 +185,20 @@ def main():
         key = "workstation-offline-kernel"
         data["modules"][KERNEL]["key"] = key
         data["payloads"][key] = base64.b64encode(gzip.compress(kernel, mtime=0)).decode()
-    if linked or args.offline or args.kernel:
+    if args.development_layer:
+        embed_development_image(data, args.development_layer.read_bytes())
+        if "## Alpine development tools\n" not in html:
+            marker = "The Alpine workspace includes the signed GNU Bash"
+            html = replace_once(html, marker, DEVELOPMENT_NOTICE + marker)
+            match = DATA.search(html)
+    if linked or args.offline or args.kernel or args.development_layer:
         html = html[:match.start(2)] + json.dumps(data, separators=(",", ":")) + html[match.end(2):]
     if args.gateway:
         tag = '<meta name="workstation-gateway" content="' + html_tools.escape(args.gateway.rstrip('/'), quote=True) + '">'
         html = replace_once(html, "  <title>Pointblank Linux</title>", "  " + tag + "\n  <title>Pointblank Linux</title>")
     args.output.write_text(html)
     if args.split_assets:
-        assets = args.split_assets
-        assets.mkdir(parents=True, exist_ok=True)
-        data = html.encode()
-        (assets / "index-length.txt").write_text(str(len(data)))
-        offset = len(data) // 2
-        for index, part in enumerate((data[:offset], data[offset:]), 1):
-            (assets / f"index-part-{index}.bin").write_bytes(part)
+        write_release_assets(args.split_assets, html.encode())
 
 
 if __name__ == "__main__":

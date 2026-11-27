@@ -36,15 +36,15 @@ export default {
     if (request.method === 'HEAD') return new Response(null, { headers: { ...cache, 'Content-Type': 'text/html; charset=utf-8' } });
     if (request.method !== 'GET') return new Response(null, { status: 405 });
     const chunk = (name) => env.ASSETS.fetch(new Request(new URL('/' + name, url)));
-    const [lengthFile, first, second] = await Promise.all([
-      chunk('index-length.txt'), chunk('index-part-1.bin'), chunk('index-part-2.bin'),
-    ]);
-    const parts = [first, second];
-    if (!lengthFile.ok || parts.some((part) => !part.ok)) {
-      return new Response('Release assets are unavailable', { status: 503 });
+    const manifest = await chunk('index-assets.json');
+    if (!manifest.ok) return new Response('Release assets are unavailable', { status: 503 });
+    const metadata = await manifest.json().catch(() => null);
+    const { size, parts: count } = metadata ?? {};
+    if (!Number.isSafeInteger(size) || size < 1 || !Number.isSafeInteger(count) || count < 1 || count > size) {
+      return new Response('Invalid release asset manifest', { status: 503 });
     }
-    const size = Number(await lengthFile.text());
-    if (!Number.isSafeInteger(size) || size < 1) return new Response('Invalid release asset length', { status: 503 });
+    const parts = await Promise.all(Array.from({ length: count }, (_, index) => chunk('index-part-' + (index + 1) + '.bin')));
+    if (parts.some((part) => !part.ok)) return new Response('Release assets are unavailable', { status: 503 });
     const { readable, writable } = new FixedLengthStream(size);
     const append = async () => {
       for (const part of parts) await part.body.pipeTo(writable, { preventClose: true });

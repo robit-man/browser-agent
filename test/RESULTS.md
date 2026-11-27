@@ -164,3 +164,27 @@ The production release before this fix reproduced `Failed to resolve module spec
 `node test/agent-imports.mjs` passed locally, on the Cloudflare preview, and on production. The regression supplies a test adapter and intercepts the first Strands checkpoint request after the engine import, so the result covers module loading through checkpoint retrieval. Desktop pane, mobile-emulation, and local offline boot checks passed on the rebuilt artifact.
 
 Cloudflare host version `169b3295-3b6d-4dde-af1e-1d3914654c16` serves the build at 100%. The HTML SHA-256 is `6cce9d6c3b9d382ddf056a875b5d034e7cae7fbe861f1c047809050030eb5ff9`. The previous host version `0e99745a-20e9-42d5-bf57-daefac4718d5` remains the rollback for this fix.
+
+## Preloaded Alpine development tools
+
+The starter image adds Git 2.54.1, Git templates, Node.js 24.22.3, npm 11.12.1, and their dependencies through Alpine's signed 3.24 aarch64 repositories. The resulting development layer is 30,723,931 bytes with SHA-256 `8de46346c46f5770e0d76b1f0a504b3ad3d3d046f8179bc15e50a6a0d903da2a`. APK remains the system package manager.
+
+The standalone file grew from 31,639,670 to 72,608,343 bytes. The Cloudflare preview served it as one response assembled from three static assets. A download advertising compression matched the standalone HTML byte for byte. Its SHA-256 is `52d30ab22242c4ead4a42c6178c325bbcf72794980105f14856487ae19523ccb`.
+
+The Chromium development-tools suite passed with the local HTML offline and on the preview. A new shell ran Git, Node.js, npm, and APK before any setup, initialized a project and Git history, ran an npm script, and saved and restored the workspace. The standalone Strands import regression passed on the preview. Desktop Firefox 157.0 and WebKit 26.5 booted and ran a shell command.
+
+The authorized fixture suite passed native APK and npm installs, authenticated Git push, portable snapshot export and clean-profile import, corruption rejection, interrupted OPFS writes, quota exhaustion, and IndexedDB fallback. The preview build also restored the file and package set from a checkpoint created before the development layer existed.
+
+Median across three fresh Chromium launches at 1440 × 850. The previous build was served by production and the new build by the preview.
+
+| Measure | Previous build | Preloaded tools |
+| --- | ---: | ---: |
+| Startup | 10,318 ms | 11,766 ms |
+| Total renderer RSS | 674 MiB | 920 MiB |
+| Terminal round trip | 113 ms | 109 ms |
+
+Run `node test/development-tools.mjs` with Chromium installed to repeat offline boot, project creation, and save/restore. Set `WORKSTATION_TEST_ORIGIN=https://linux.pointblankllc.com` and `WORKSTATION_PUBLIC_NETWORK=1` for the production package checks.
+
+Cloudflare host version `c2b085c9-c538-4f93-bb41-61742e4b8138` serves production at 100%. The production HTML matched the preview and standalone artifact byte for byte. A clean profile used `apk add --no-cache jq`, `git clone` over HTTPS, and ordinary `npm install is-number@7.0.0`. Node loaded the installed package, and the project and Git history survived a save and reload. Production also reopened the older checkpoint with its original package set.
+
+The previous host version `169b3295-3b6d-4dde-af1e-1d3914654c16` is the rollback for this release.

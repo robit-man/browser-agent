@@ -591,6 +591,13 @@ function replaceRequired(source, anchor, replacement) {
 }
 
 function adaptDocker(script) {
+  if (oci['/oci/registry-1.docker.io_pointblank_workstation_3.24/meta.json']) {
+    const ensureImage = '  IMG_KEY=$(_oci ensure "$IMAGE")\n  IMG_SRC="$OCI_MNT/images/$IMG_KEY"';
+    script = replaceRequired(script, ensureImage, `  if [ "$CUSTOM_NAME" = botpsy-alpine ] && [ ! -f /tmp/pointblank-restore.tar.gz ]; then
+    IMAGE=pointblank/workstation:3.24
+  fi
+` + ensureImage);
+  }
   script = replaceRequired(script, '  prepare_image_layers "$IMG_KEY"\n  LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")', `  if [ "$CUSTOM_NAME" != botpsy-alpine ] || [ ! -f /tmp/pointblank-restore.tar.gz ]; then
     prepare_image_layers "$IMG_KEY"
     LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")
