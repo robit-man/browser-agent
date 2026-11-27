@@ -188,3 +188,13 @@ Run `node test/development-tools.mjs` with Chromium installed to repeat offline 
 Cloudflare host version `c2b085c9-c538-4f93-bb41-61742e4b8138` serves production at 100%. The production HTML matched the preview and standalone artifact byte for byte. A clean profile used `apk add --no-cache jq`, `git clone` over HTTPS, and ordinary `npm install is-number@7.0.0`. Node loaded the installed package, and the project and Git history survived a save and reload. Production also reopened the older checkpoint with its original package set.
 
 The previous host version `169b3295-3b6d-4dde-af1e-1d3914654c16` is the rollback for this release.
+
+## Public networking at shell startup
+
+The previous production build opened with `NETWORK: OFFLINE` when a browser retained the old disconnect preference. The public gateway check now begins during boot. When discovery is pending, the app waits for success or the existing timeout before exposing the first shell.
+
+The browser suite proved that a normal workspace saved during a disconnected visit reconnects on reload. Imported snapshots remained offline across reload until explicit approval, and subsequent visits retained that approval. A simulated gateway failure opened a usable offline shell and recovered when the browser reported connectivity. The bundled file still booted offline. The first production shell reached Alpine mirrors, GitHub, and npm with the old disconnect preference present and without opening Networking.
+
+Host version `946cac27-fa3f-44a4-88fa-66bb529b5742` serves production at 100%. The deployed bytes matched the staged HTML and local artifact with SHA-256 `2924b3e28095a463473e4d1bbf5e4f2561d6fb2364353f4221fee115514b6101`. The rollback version is `c2b085c9-c538-4f93-bb41-61742e4b8138`.
+
+Run `node test/public-startup.mjs` for the browser regression suite. Set `WORKSTATION_STARTUP_SMOKE=1` to run the initial connection check only.

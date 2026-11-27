@@ -34,7 +34,9 @@ Requests are capped at 16 MiB and streamed responses at 64 MiB, with lower per-s
 
 The gateway permits anonymous GitHub smart HTTP clone and fetch, plus read operations for the Alpine, npm, and PyPI package services. It rejects Git receive-pack, package writes, credentials, and arbitrary origins. Public Git requests have a 2 MiB request-body limit. Public traffic is limited to 90 requests per client and 180 total requests per minute at each Cloudflare location. Public requests emit independent `workstation_public_egress` audit records.
 
-The network dialog can switch to the authenticated gateway for scoped private access. Manual disconnect persists across reloads. Portable snapshot imports require an explicit `network on` after restore.
+The network dialog can switch to the authenticated gateway for scoped private access. Disconnect and `network off` pause the current visit. An ordinary reload opens with public access. If the public gateway is unavailable, the shell opens offline and the app retries when the browser reports that connectivity has returned.
+
+Portable imports and named restores require explicit approval before public access. This also applies to checkpoints marked offline by older releases, which used the same marker for disconnects and explicit restores. Run `network on` to approve such a checkpoint.
 
 ## Audit and operations
 

@@ -1,7 +1,7 @@
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
 let networkState = 'OFFLINE';
-let publicConnection;
+let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
 const egress = newEgress();
 const workspaceGroup = '/sys/fs/cgroup/pointblank-workspace';
@@ -124,7 +124,7 @@ async function capture(name) {
 async function save() {
   if (!storageHealthy) throw Error('Import a verified backup or reset the workspace to resume saving');
   const entry = await capture('Workspace');
-  if (publicNetwork && !publicNetworkOnStartup()) entry.metadata.publicNetworkSuspended = true;
+  if (active?.metadata.publicNetworkSuspended && !publicNetworkOnStartup()) entry.metadata.publicNetworkSuspended = true;
   if (active?.metadata.sha256 !== entry.metadata.sha256 ||
       active?.metadata.publicNetworkSuspended !== entry.metadata.publicNetworkSuspended) await commitWorkspace(entry);
   status(savedLabel(active.metadata));
@@ -277,9 +277,7 @@ async function prepareGuest(vm) {
   }
 }
 
-async function prepareTerminal(vm, terminal, network) {
-  runtime.terminal = terminal;
-  runtime.network = network;
+async function prepareTerminal(vm) {
   await guestExec(vm, 'mount --bind /run/pointblank-workspace/workspace /workspace');
   if (runtime.legacy && !restored) {
     await guestExec(vm, 'if test -d /data/browser-agent-workspace; then cp -a /data/browser-agent-workspace/. /workspace/; fi');
@@ -308,6 +306,10 @@ async function prepareTerminal(vm, terminal, network) {
   } catch (error) {
     throw Error(error.message + (proxyError ? '\n' + proxyError.trim() : ''));
   }
+  if (publicConnection) {
+    byId('boot').textContent = 'Connecting public networking…';
+    await publicConnection;
+  }
 }
 
 function ready() {
@@ -315,7 +317,6 @@ function ready() {
   if (workspaceStorage && storageHealthy && !pendingRecovery) status(active && !active.metadata.reset ? savedLabel(active.metadata) : 'Ready to save');
   updateControls();
   scheduleAutosave();
-  if (publicNetworkOnStartup()) void connectPublicNetwork();
   if (runtime?.legacy && workspaceStorage && storageHealthy) void operation('Migrating the previous workspace…', save);
 }
 
@@ -332,31 +333,37 @@ function networkStatus() {
 
 function publicNetworkOnStartup() {
   if (!publicNetwork) return false;
+  if (!active?.metadata.publicNetworkSuspended) return true;
   let preference;
   try { preference = localStorage.getItem(networkPreferenceKey); } catch {}
-  if (preference === 'off') return false;
-  return !active?.metadata.publicNetworkSuspended || preference === 'on:' + active.metadata.generation;
+  return preference === 'on:' + active.metadata.generation;
 }
 
-function rememberPublicNetwork(enabled) {
-  try { localStorage.setItem(networkPreferenceKey, enabled ? 'on:' + (active?.metadata.generation || 0) : 'off'); } catch {}
+function startPublicNetwork() {
+  if (!networkPaused && publicNetworkOnStartup() && !egress.connected) void connectPublicNetwork();
 }
 
-async function connectPublicNetwork(remember = false) {
+async function connectPublicNetwork(approve = false) {
   if (!egress.publicConnected && !publicConnection) {
     networkState = 'CONNECTING';
     networkStatus();
     publicConnection = egress.enablePublic().then(() => {
       userSelectedNetwork = true;
       networkState = 'ONLINE';
-      runtime.network.set('direct');
+      if (runtime?.network) runtime.network.set('direct');
+      else networkStatus();
     }).catch(() => {
       if (networkState === 'CONNECTING') networkState = egress.connected ? 'ONLINE' : 'ERROR';
       networkStatus();
     }).finally(() => { publicConnection = undefined; });
   }
   await publicConnection;
-  if (remember && egress.publicConnected) rememberPublicNetwork(true);
+  if (approve && egress.publicConnected) {
+    networkPaused = false;
+    if (active?.metadata.publicNetworkSuspended) {
+      try { localStorage.setItem(networkPreferenceKey, 'on:' + active.metadata.generation); } catch {}
+    }
+  }
   return egress.publicConnected;
 }
 
@@ -518,6 +525,7 @@ function installUI() {
     try {
       await egress.enable(field('key').value.trim(), field('repository').value.trim(),
         field('username').value.trim(), field('git-token').value.trim());
+      networkPaused = false;
       userSelectedNetwork = true;
       networkState = 'ONLINE';
       runtime.network.set('direct');
@@ -538,12 +546,13 @@ function installUI() {
   window.addEventListener('pagehide', () => {
     egress.disable();
     userSelectedNetwork = false;
-    if (runtime?.network) runtime.network.set('disable', { remember: false });
+    if (runtime?.network) runtime.network.set('disable', { pause: false });
   });
   window.addEventListener('pageshow', (event) => {
     networkStatus();
-    if (event.persisted && workspaceReady && publicNetworkOnStartup()) void connectPublicNetwork();
+    if (event.persisted && workspaceReady) startPublicNetwork();
   });
+  window.addEventListener('online', () => { if (workspaceReady) startPublicNetwork(); });
   networkStatus();
   updateControls();
 }
@@ -559,12 +568,13 @@ exec "$bridge" "$@"
 `;
 
 function bindNetwork(network) {
+  runtime.network = network;
   const set = network.set.bind(network);
-  network.set = (mode, { remember = true } = {}) => {
+  network.set = (mode, { pause = true } = {}) => {
     if (mode === 'relay') throw Error('Use the Network toolbar for authorized HTTPS');
     if (mode === 'disable') {
       egress.disable();
-      if (publicNetwork && remember) rememberPublicNetwork(false);
+      if (pause) networkPaused = true;
       userSelectedNetwork = false;
       networkState = 'OFFLINE';
       set('disable');
@@ -580,6 +590,7 @@ function bindNetwork(network) {
     const response = await egress.browserRequest('https://' + host + '/', 'HEAD', signal);
     return { host, reached: response.ok, http_status: response.status, via: 'authorized HTTPS proxy' };
   };
+  if (egress.publicConnected) network.set('direct');
 }
 
 function replaceRequired(source, anchor, replacement) {
@@ -656,7 +667,7 @@ function adaptEntry(source) {
       'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
     ['memory:new Ux,documentModel:n', 'memory:new Ux(workstation.agentMemory),documentModel:n'],
     ['await u.tools.ensure().catch(e=>{f=e})',
-      'await u.tools.ensure();await workstation.prepareTerminal(l,i,S)'],
+      'await u.tools.ensure();await workstation.prepareTerminal(l)'],
     ['focus(){i.focus()},async importFile', 'focus(){terminalManager.focus()},async importFile'],
     ['i.writeln(f?`alpine startup failed: `+f.message:`alpine workspace ready`+(C?` · saved to browser storage`:ee?` · storage unavailable, session only`:``)),', ''],
     ['i.writeln(`\\x1B[90mmodel unloaded · agent load downloads/caches weights, or agent "task" auto-loads\\x1B[0m`)', 'void 0'],
@@ -682,3 +693,4 @@ globalThis.workstation = {
 
 installUI();
 const bootWorkstation = await loadWorkspace();
+if (bootWorkstation) startPublicNetwork();

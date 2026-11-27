@@ -55,11 +55,11 @@ The bundled unkernel exposes `KernelInstance.snapshot()` and `createKernel({ res
 
 ## Authorized native networking
 
-[linux.pointblankllc.com](https://linux.pointblankllc.com/) boots with public networking enabled. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
+[linux.pointblankllc.com](https://linux.pointblankllc.com/) connects to public networking before opening a fresh or ordinary saved shell. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
 
 For private Git or push, open the status dot's **Networking** dialog and enter the workspace egress key, a GitHub username, and a fine-grained token scoped to the authorized repository and Contents permissions. A repository-specific GitHub App installation token also works. The repository must allow writes in the authenticated gateway policy. GitHub applies the token's permissions and branch rules. [GitHub token permissions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
-Use `network status`, `network services`, `network test`, and `network logs` in Alpine. `network off` cancels requests and retains your offline preference on return. Use `network on` to resume public access. Private sessions expire after one hour. Open the dialog and authorize again to renew. Rotate the private gateway key to revoke outstanding private sessions. [Network architecture and security](docs/NETWORK.md)
+Use `network status`, `network services`, `network test`, and `network logs` in Alpine. `network off` cancels requests for the current visit. Reloading reconnects an ordinary workspace automatically. Use `network on` to resume public access in place or approve networking for a restored checkpoint. Private sessions expire after one hour. Open the dialog and authorize again to renew. Rotate the private gateway key to revoke outstanding private sessions. [Network architecture and security](docs/NETWORK.md)
 
 ## Build and deployment
 
