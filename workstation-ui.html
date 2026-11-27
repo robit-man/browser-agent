@@ -1,64 +1,566 @@
 <style id="workstation-style">
-  .frame { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
-  #terminal-area { position: relative; min-width: 0; }
-  #workstation-bar, #workstation-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 8px var(--inset); font-size: 12px; }
-  #workstation-bar { border-bottom: 1px solid #252525; }
-  #workstation-bar nav { display: flex; flex-wrap: wrap; gap: 4px; }
-  #workstation-status { border-top: 1px solid #252525; color: #aaa; }
-  #save-status { flex: 1 1 160px; overflow-wrap: anywhere; }
-  .workstation-brand { color: #ededed; font-weight: 700; }
-  #workstation-bar button, #workstation-status button, dialog button, select, dialog input {
-    font: inherit; color: inherit; border: 1px solid #444; background: #141414; border-radius: 3px; padding: 4px 7px;
-  }
-  button:disabled { opacity: .45; }
-  button:not(:disabled), select { cursor: pointer; }
-  :focus-visible { outline: 2px solid #87bfff; outline-offset: 2px; }
-  #boot { font-family: inherit; }
-  dialog { color: #efefef; background: #101010; border: 1px solid #454545; border-radius: 5px; max-width: min(95vw, 520px); width: 100%; padding: 16px; font: 13px/1.5 var(--mono); }
-  dialog h2 { font-size: 15px; margin: 0 0 12px; }
-  dialog::backdrop { background: #000a; }
-  dialog form { display: flex; flex-wrap: wrap; gap: 8px; }
-  dialog form label { flex: 1 1 100%; display: grid; gap: 3px; }
-  dialog #snapshot-name { flex: 1; min-width: 120px; }
-  #snapshot-list { list-style: none; padding: 0; }
-  #snapshot-list li { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
-  #snapshot-list li span { flex: 1 1 100%; overflow-wrap: anywhere; }
-  #network-message { flex: 1 1 100%; color: #ffab9d; }
-  #network-message:empty { display: none; }
-  .dialog-close { margin-top: 14px; }
+:root {
+  color-scheme: dark;
+  --black: #000;
+  --text: #f0f0f0;
+  --muted: #9c9c9c;
+  --edge: rgb(255 255 255 / .16);
+  --edge-strong: rgb(255 255 255 / .32);
+  --surface: rgb(255 255 255 / .045);
+  --hover: rgb(255 255 255 / .11);
+  --selected: rgb(255 255 255 / .17);
+  --error: #ffabab;
+  --connected: #8cdda1;
+  --pending: #e4bc74;
+  --radius: 10px;
+  --inset: 12px;
+  --control-height: 46px;
+  --gap: 8px;
+  --fade: 100ms;
+  --divider-size: 9px;
+  --viewport-top: 0px;
+  --viewport-height: 100dvh;
+  font: 400 1rem/1.4 system-ui, sans-serif;
+  color: var(--text);
+  background: var(--black);
+  scrollbar-width: thin;
+  scrollbar-color: #505050 var(--black);
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  inline-size: 100%;
+  block-size: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: pan-x pan-y;
+}
+[hidden] { display: none !important; }
+::selection { background: #4b4b4b; color: #fff; }
+button, input { font: inherit; color: inherit; caret-color: var(--text); }
+button {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--fade), border-color var(--fade), opacity var(--fade), transform var(--fade);
+}
+button:disabled { cursor: default; }
+button:not(:disabled):active { transform: scale(.96); }
+:focus-visible { outline: 2px solid #ccc; outline-offset: 2px; }
+.visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#app {
+  position: fixed;
+  inset: var(--viewport-top) 0 auto;
+  block-size: var(--viewport-height);
+  display: flex;
+  flex-direction: column;
+  background: var(--black);
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}
+#controls {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: max(5px, env(safe-area-inset-top)) 8px 2px;
+}
+.icon-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 42px;
+  block-size: 42px;
+  flex: none;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+}
+.icon-button:hover { background: var(--hover); }
+#toggle-sessions { margin-inline-end: auto; }
+#add-session { touch-action: none; user-select: none; -webkit-touch-callout: none; }
+#toggle-sessions svg {
+  inline-size: 16px;
+  block-size: 16px;
+  transition: transform var(--fade);
+}
+#toggle-sessions[aria-expanded="true"] svg { transform: rotate(180deg); }
+.control-icon {
+  display: block;
+  inline-size: 16px;
+  block-size: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+.tab-close .control-icon, :is(.pane-minimize, .pane-close) .control-icon {
+  inline-size: 13px;
+  block-size: 13px;
+}
+.icon-definitions { position: absolute; pointer-events: none; }
+.status-dot {
+  inline-size: 8px;
+  block-size: 8px;
+  border-radius: 50%;
+  background: #767676;
+}
+.status-dot[data-state="connecting"], .status-dot[data-state="reconnecting"] { background: var(--pending); }
+.status-dot[data-state="online"] { background: var(--connected); }
+
+#workspace {
+  display: flex;
+  flex: 1;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+#session-sidebar {
+  --rail-width: 110px;
+  inline-size: 0;
+  flex: none;
+  overflow: hidden;
+  transition: inline-size var(--fade) ease-out;
+}
+.sidebar-content {
+  inline-size: var(--rail-width);
+  block-size: 100%;
+  padding: 3px 5px 10px 7px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  transform: translateX(-100%);
+  transition: transform var(--fade) ease-out;
+}
+#app[data-sidebar-open="true"] #session-sidebar { inline-size: var(--rail-width); }
+#app[data-sidebar-open="true"] .sidebar-content { transform: translateX(0); }
+.tab-row {
+  display: flex;
+  inline-size: 100%;
+  margin-block-end: 4px;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / .09);
+  background: rgb(255 255 255 / .022);
+  transition: background-color var(--fade), border-color var(--fade), opacity var(--fade);
+}
+.tab-row[data-selected="true"] {
+  border-color: rgb(255 255 255 / .2);
+  background: rgb(255 255 255 / .07);
+}
+#app[data-dragging="true"] .tab-row[data-dragged="true"] { opacity: .45; }
+#sidebar-trash {
+  display: grid;
+  place-items: center;
+  block-size: 34px;
+  margin-block-start: 6px;
+  border: 1px dashed var(--edge-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  transition: color var(--fade), border-color var(--fade), background-color var(--fade);
+}
+#sidebar-trash[hidden] { display: none; }
+#sidebar-trash[data-over="true"] { border-color: var(--error); color: var(--error); background: rgb(255 171 171 / .08); }
+.sidebar-add {
+  display: grid;
+  place-items: center;
+  min-block-size: 28px;
+  padding: 0;
+  color: #d2d2d2;
+}
+.sidebar-add:hover { background: var(--hover); border-color: var(--edge-strong); }
+.sidebar-add:focus-visible { outline-offset: -3px; }
+.tab-select, .tab-close {
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+}
+.tab-select {
+  flex: 1;
+  padding: 6px 8px;
+  line-height: 1.25;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: .75rem;
+  color: #d2d2d2;
+  /* Rows drag in any direction: onto a pane to dock, or onto the trash. */
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.tab-select:hover, .tab-close:hover { background: var(--hover); }
+.tab-select:focus-visible, .tab-close:focus-visible { outline-offset: -3px; }
+.tab-row[data-selected="true"] .tab-select { color: var(--text); }
+.tab-close {
+  inline-size: 27px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.tab-select:focus-visible + .tab-close, .tab-close:focus-visible,
+.tab-row[data-touch-close="true"] .tab-close { opacity: 1; pointer-events: auto; }
+@media (any-hover: hover) {
+  .tab-row:hover .tab-close { opacity: 1; pointer-events: auto; }
+}
+#terminals {
+  position: relative;
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+#panes, .pane-split, .terminal-panel {
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+.pane-split { display: grid; }
+.pane-split[data-axis="row"] {
+  grid-template-columns: minmax(0, var(--first)) var(--divider-size) minmax(0, var(--second));
+  grid-template-rows: minmax(0, 1fr);
+}
+.pane-split[data-axis="column"] {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--first)) var(--divider-size) minmax(0, var(--second));
+}
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.terminal-with-padding {
+  flex: 1;
+  min-block-size: 0;
+  padding: 3px 6px 4px 8px;
+}
+.terminal-content, .terminal-content > .xterm { inline-size: 100%; block-size: 100%; }
+.pane-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-block-size: 27px;
+  flex: none;
+  padding-inline: 8px 2px;
+  background: var(--black);
+  color: var(--muted);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  font-size: .75rem;
+}
+.terminal-panel[data-active="true"] .pane-bar { color: var(--text); }
+.pane-label {
+  min-inline-size: 0;
+  block-size: 25px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pane-label:hover, .pane-label[aria-expanded="true"] { background: var(--hover); }
+.pane-label:focus-visible { outline-offset: -2px; }
+#pane-font-menu {
+  position: fixed;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius);
+  background: var(--black);
+}
+.font-step {
+  display: grid;
+  place-items: center;
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+}
+.font-step:hover:not(:disabled) { background: var(--hover); }
+.font-step:disabled { opacity: .4; }
+#pane-font-value {
+  min-inline-size: 39px;
+  text-align: center;
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+}
+:is(.pane-minimize, .pane-close) {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 26px;
+  block-size: 25px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+:is(.pane-minimize, .pane-close):hover { background: var(--hover); }
+.pane-divider {
+  position: relative;
+  min-inline-size: 0;
+  min-block-size: 0;
+  background: transparent;
+  touch-action: none;
+  transition: background-color var(--fade);
+}
+.pane-divider::before {
+  position: absolute;
+  content: "";
+  background: transparent;
+  transition: background-color var(--fade);
+}
+.pane-split[data-axis="row"] > .pane-divider { cursor: col-resize; }
+.pane-split[data-axis="row"] > .pane-divider::before { inset: 0 4px; }
+.pane-split[data-axis="column"] > .pane-divider { cursor: row-resize; }
+.pane-split[data-axis="column"] > .pane-divider::before { inset: 4px 0; }
+.pane-divider[data-resizing="true"] { background: var(--hover); }
+.pane-divider[data-resizing="true"]::before { background: #dadada; }
+@media (any-hover: hover) {
+  .pane-divider:hover { background: var(--hover); }
+  .pane-divider:hover::before { background: #dadada; }
+}
+#dock-targets {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: rgb(0 0 0 / .64);
+  pointer-events: none;
+}
+.dock-target {
+  position: absolute;
+  border: 1px solid var(--edge-strong);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.dock-target[data-highlight="true"] {
+  border-color: rgb(255 255 255 / .76);
+  background: var(--selected);
+}
+#app[data-dragging="true"] { cursor: grabbing; user-select: none; }
+#app[data-dragging="true"] :is(.pane-bar, .pane-label, .tab-select, #add-session) { cursor: grabbing; }
+body { font: 400 1rem/1.4 system-ui, sans-serif; }
+#terminal { position: relative; inset: auto; }
+.terminal-content { position: relative; font-family: var(--mono); }
+.terminal-content .xterm-viewport { scrollbar-width: none; }
+.terminal-content .xterm-scrollable-element { height: 100%; }
+.terminal-content .xterm-scrollable-element .scrollbar { display: none; }
+.terminal-panel[data-guest="true"] .terminal-with-padding { overflow: auto; }
+#boot { inset: 28px 0 0; font: 13px/1.6 var(--mono); }
+#transfer { z-index: 7; }
+#transfer[data-dragging] { inset: 0; border: 1px solid var(--edge-strong); }
+.pane-actions { display: flex; gap: 2px; align-items: center; flex: none; }
+.pane-action { width: 30px; height: 27px; padding: 0; display: grid; place-items: center; background: transparent; border: 0; border-radius: 6px; }
+.pane-action:hover { background: var(--hover); }
+.pane-action[data-shared="true"] { color: var(--connected); }
+.pane-action .control-icon { width: 14px; height: 14px; }
+#workspace-actions, #connection-menu, #term-menu {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  gap: 4px;
+  min-width: 170px;
+  padding: 6px;
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius);
+  background: var(--black);
+  box-shadow: 0 8px 28px #000a;
+}
+#workspace-actions, #connection-menu { top: calc(max(5px, env(safe-area-inset-top)) + 44px); right: 8px; }
+#workspace-actions { right: 52px; }
+#connection-menu { padding: 12px; width: min(330px, calc(100vw - 16px)); gap: 8px; }
+#connection-menu h2, dialog h2 { font-size: .9375rem; font-weight: 650; margin: 0; }
+#connection-menu p, #save-status, #storage-usage { margin: 0; color: var(--muted); font-size: .75rem; overflow-wrap: anywhere; }
+#connection-menu .network-state { color: var(--text); }
+#connection-sessions { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; max-height: 184px; overflow-y: auto; }
+#connection-menu .connection-session {
+  display: flex; justify-content: space-between; gap: 8px; width: 100%;
+  min-height: 30px; text-align: start; border-color: transparent; background: var(--surface);
+}
+.connection-session small { color: var(--muted); white-space: nowrap; }
+#workspace-actions button, #term-menu button {
+  font-size: .8125rem; line-height: 1.3; color: inherit; text-align: left; border: 0; border-radius: 6px; background: transparent; padding: 7px 9px;
+}
+#workspace-actions button:hover:not(:disabled), #term-menu button:hover:not(:disabled) { background: var(--hover); }
+#workspace-actions hr { width: 100%; border: 0; border-top: 1px solid var(--edge); margin: 3px 0; }
+#term-menu { position: fixed; min-width: 130px; }
+#term-paste-field { width: 180px; }
+#network-settings .status-dot { display: block; }
+.status-dot[data-state="error"] { background: var(--error); }
+dialog {
+  color: var(--text); width: min(calc(100vw - 24px), 368px); max-height: calc(100dvh - 24px); overflow: auto;
+  border: 1px solid var(--edge-strong); border-radius: calc(var(--radius) + var(--inset));
+  padding: var(--inset); background: var(--black); font: 400 .8125rem/1.45 system-ui, sans-serif;
+  box-shadow: 0 8px 28px #000b;
+}
+dialog::backdrop { background: #0007; }
+dialog h2 { margin-bottom: var(--gap); }
+dialog p { color: var(--muted); margin: 0 0 var(--gap); }
+dialog label { display: grid; gap: 3px; min-width: 0; }
+dialog form { display: grid; gap: var(--gap); }
+dialog button, dialog input, dialog select, #connection-menu button, #term-paste-field {
+  font: inherit; color: inherit; background: #101010; border: 1px solid var(--edge); border-radius: 7px;
+  min-height: 34px; padding: 5px 8px;
+}
+dialog button:hover:not(:disabled), #connection-menu button:hover:not(:disabled) { background: var(--hover); }
+dialog input, dialog select, #term-paste-field { font-size: 16px; min-width: 0; }
+dialog input[type=checkbox] { min-height: unset; width: 15px; height: 15px; }
+.dialog-actions, .share-heading, .share-tabs { display: flex; align-items: center; flex-wrap: wrap; gap: var(--gap); }
+.share-heading { justify-content: space-between; }
+.share-heading h2 { margin: 0; }
+.share-heading .icon-button { width: 34px; height: 34px; min-height: 0; padding: 0; background: transparent; border-color: transparent; }
+.share-tabs { margin-bottom: var(--gap); }
+.share-tabs button { flex: 1; }
+.share-tabs button[aria-selected=true] { background: var(--selected); border-color: var(--edge-strong); }
+.dialog-close { margin-top: var(--gap); }
+#snapshot-list, #share-peers { display: grid; list-style: none; gap: var(--gap); padding: 0; }
+#snapshot-list li, .share-peer { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+#snapshot-list li span { flex: 1 1 100%; overflow-wrap: anywhere; }
+#network-message, #share-status { color: var(--muted); overflow-wrap: anywhere; }
+#network-message:empty, #share-status:empty { display: none; }
+#share-pin { font: 600 1.45rem/1.2 var(--mono); letter-spacing: .23em; text-align: center; }
+#share-qr { display: block; margin: 8px auto; width: 150px; height: 150px; border-radius: 3px; }
+#share-invitation, #share-approval { display: grid; gap: var(--gap); }
+.share-pin-entry { border: 0; padding: 0; margin: 0; }
+.share-pin-cells { display: flex; gap: 6px; margin-top: 4px; }
+.share-pin-cells input { width: 42px; height: 42px; text-align: center; font: 600 16px var(--mono); }
+.share-permissions { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
+.share-permissions label { display: flex; align-items: center; }
+#soft-keys {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  min-inline-size: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 5px 7px;
+  border-block-start: 1px solid var(--edge);
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+#soft-keys button {
+  flex: none;
+  min-inline-size: 42px;
+  block-size: 38px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+  white-space: nowrap;
+  font-size: .8125rem;
+}
+#soft-keys button:hover { background: var(--hover); }
+#soft-keys button[aria-pressed="true"] {
+  background: var(--selected);
+  border-color: #999;
+}
+#app:not([data-keyboard="true"]) #workspace {
+  margin-block-end: env(safe-area-inset-bottom);
+}
+.peer-cursors { pointer-events: none; position: absolute; inset: 0; }
+.peer-cursor { position: absolute; color: #a7edc1; font-size: 10px; white-space: nowrap; }
+@media(max-width: 560px) {
+  #session-sidebar { --rail-width: 79px; }
+  .sidebar-content { padding-inline: 4px 3px; }
+  .tab-select { padding: 7px 6px; font-size: .6875rem; }
+  .terminal-with-padding { padding-inline-start: 5px; }
+  .tab-close { inline-size: 25px; }
+  #controls { padding-inline-end: 4px; }
+}
+@media (pointer: coarse) {
+  .tab-close { min-block-size: 42px; }
+  .pane-label, .pane-action, .pane-minimize, .pane-close { min-block-size: 34px; }
+  .pane-action, .pane-minimize, .pane-close { min-inline-size: 32px; }
+  dialog { max-block-size: calc(var(--viewport-height) - 24px); }
+}
+#share-camera { width: 100%; max-height: 180px; object-fit: cover; }
+@media (prefers-reduced-motion: reduce) { *, *::before { transition-duration: 0s !important; } }
 </style>
-<div class="frame">
-  <header id="workstation-bar">
-    <span class="workstation-brand">POINTBLANK / LINUX</span>
-    <nav aria-label="Workspace">
-      <button id="save-state" disabled>Save</button>
-      <button id="export-state" disabled>Export</button>
-      <button id="import-state" disabled>Import</button>
-      <button id="snapshots" disabled>Snapshots</button>
-      <button id="reset-state" disabled>Reset</button>
-    </nav>
+<svg class="icon-definitions" width="0" height="0" aria-hidden="true">
+  <symbol id="icon-chevron" viewBox="0 0 16 16"><path d="m6 4 4 4-4 4"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></symbol>
+  <symbol id="icon-minus" viewBox="0 0 16 16"><path d="M3.5 8h9"/></symbol>
+  <symbol id="icon-close" viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8"/></symbol>
+  <symbol id="icon-share" viewBox="0 0 16 16"><circle cx="12" cy="3.5" r="1.75"/><circle cx="4" cy="8" r="1.75"/><circle cx="12" cy="12.5" r="1.75"/><path d="m5.55 7.2 4.9-2.9m-4.9 4.5 4.9 2.9"/></symbol>
+  <symbol id="icon-menu" viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h10"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 16 16"><path stroke-linejoin="round" d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 8.5h6.6l.7-8.5M6.75 7v4M9.25 7v4"/></symbol>
+  <symbol id="icon-fork" viewBox="0 0 16 16"><circle cx="5" cy="3" r="1.6"/><circle cx="5" cy="13" r="1.6"/><circle cx="11" cy="4.5" r="1.6"/><path d="M5 4.6v6.8M11 6.1c0 3.4-6 2.4-6 5.3"/></symbol>
+</svg>
+<div id="app">
+  <header id="controls">
+    <button id="toggle-sessions" class="icon-button" aria-label="Show sessions" aria-controls="session-sidebar" aria-expanded="false" title="Show sessions"><svg class="control-icon" aria-hidden="true"><use href="#icon-chevron"/></svg></button>
+    <button id="add-session" class="icon-button" aria-label="New session" title="New session" disabled><svg class="control-icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+    <button id="workspace-settings" class="icon-button" aria-label="Workspace menu" aria-expanded="false" aria-controls="workspace-actions" title="Workspace menu"><svg class="control-icon" aria-hidden="true"><use href="#icon-menu"/></svg></button>
+    <button id="network-settings" class="icon-button" aria-label="NETWORK: OFFLINE" aria-expanded="false" aria-controls="connection-menu" title="Connections" disabled><span class="status-dot" aria-hidden="true"></span><span class="visually-hidden" id="network-label">NETWORK: OFFLINE</span></button>
   </header>
-  <main id="terminal-area"><div id="terminal"></div><div id="boot">Starting Linux…</div><output id="transfer" role="status"></output></main>
-  <footer id="workstation-status">
-    <button id="network-settings" disabled>NETWORK: OFFLINE</button>
-    <output id="storage-usage">Checking storage…</output>
-    <label>Autosave <select id="autosave" disabled>
-      <option value="0">Off</option><option value="30">30 sec</option>
-      <option value="60">1 min</option><option value="180">3 min</option>
-    </select></label>
-    <button id="storage-protect" disabled>Protect storage</button>
-    <output id="save-status" role="status"></output>
-  </footer>
+  <main id="workspace" aria-label="Terminal workspace">
+    <aside id="session-sidebar" aria-label="Sessions" inert><div class="sidebar-content">
+      <div id="tabs" role="tablist" aria-label="Terminal sessions" aria-orientation="vertical"></div>
+      <button id="add-sidebar-session" class="tab-row sidebar-add" type="button" aria-label="New session" title="New session" disabled><svg class="control-icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+      <div id="sidebar-trash" aria-hidden="true" title="Drop here to close the session" hidden><svg class="control-icon"><use href="#icon-trash"/></svg></div>
+    </div></aside>
+    <section id="terminals" aria-label="Terminal panes">
+      <div id="panes"><div class="terminal-content" id="terminal"></div></div>
+      <div id="boot">Starting Linux…</div><output id="transfer" role="status"></output>
+      <div id="dock-targets" aria-hidden="true" hidden></div>
+    </section>
+  </main>
+  <div id="soft-keys" role="group" aria-label="Terminal keyboard controls" hidden></div>
+  <div id="workspace-actions" aria-label="Workspace actions" hidden>
+    <button id="split-right" disabled>Split right</button><button id="split-down" disabled>Split down</button>
+    <button id="share-workspace" disabled>Terminal sharing</button><hr>
+    <button id="upload-files" disabled>Upload files</button><button id="save-state" disabled>Save workspace</button><button id="export-state" disabled>Export snapshot</button>
+    <button id="import-state" disabled>Import snapshot</button><button id="snapshots" disabled>Snapshots</button><button id="workspace-storage" disabled>Storage and autosave</button><hr>
+    <button id="maintenance-shell" disabled>Maintenance shell</button><button id="reset-state" disabled>Reset workspace</button>
+  </div>
+  <section id="connection-menu" aria-labelledby="connection-title" hidden>
+    <h2 id="connection-title">Connections</h2><p class="network-state" id="network-state"></p>
+    <ul id="connection-sessions" aria-label="Terminal sessions"></ul>
+    <div class="dialog-actions"><button id="configure-network">Networking</button><button id="connection-sharing" disabled>Terminal sharing</button></div>
+  </section>
+  <div id="announcement" class="visually-hidden" role="status"></div>
+</div>
+<div id="pane-font-menu" role="group" aria-label="Terminal text size" hidden>
+  <button id="pane-font-smaller" class="font-step" aria-label="Decrease text size"><svg class="control-icon" aria-hidden="true"><use href="#icon-minus"/></svg></button>
+  <output id="pane-font-value" aria-live="polite"></output>
+  <button id="pane-font-larger" class="font-step" aria-label="Increase text size"><svg class="control-icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+</div>
+<div id="term-menu" aria-label="Terminal text" hidden>
+  <button id="term-copy">Copy</button><button id="term-paste">Paste</button><button id="term-select-all">Select all</button>
+  <input id="term-paste-field" placeholder="Paste here" aria-label="Paste text into the terminal" hidden>
 </div>
 <input id="snapshot-file" type="file" accept=".pblinux,application/octet-stream" hidden aria-label="Import filesystem snapshot">
+<dialog id="storage-dialog" aria-labelledby="storage-title">
+  <h2 id="storage-title">Storage and autosave</h2><p><output id="storage-usage">Checking storage…</output></p>
+  <label>Autosave <select id="autosave" disabled><option value="0">Off</option><option value="30">30 sec</option><option value="60">1 min</option><option value="180">3 min</option></select></label>
+  <p><output id="save-status" role="status"></output></p><button id="storage-protect" disabled>Protect storage</button>
+  <form class="dialog-close" method="dialog"><button>Close</button></form>
+</dialog>
 <dialog id="snapshot-dialog" aria-labelledby="snapshot-title">
   <h2 id="snapshot-title">Snapshots</h2>
-  <form id="snapshot-create">
-    <input id="snapshot-name" aria-label="Snapshot name" placeholder="Snapshot name" required maxlength="80">
-    <button type="submit">Create</button>
-  </form>
-  <ul id="snapshot-list"></ul>
-  <form class="dialog-close" method="dialog"><button>Close</button></form>
+  <form id="snapshot-create"><input id="snapshot-name" aria-label="Snapshot name" placeholder="Snapshot name" required maxlength="80"><button type="submit">Create</button></form>
+  <ul id="snapshot-list"></ul><form class="dialog-close" method="dialog"><button>Close</button></form>
 </dialog>
 <dialog id="network-dialog" aria-labelledby="network-title">
   <h2 id="network-title">Authorize networking</h2>
@@ -67,10 +569,48 @@
     <label>GitHub repository for private Git or push <input name="repository" placeholder="owner/repository" maxlength="200"></label>
     <label>GitHub username <input name="username" maxlength="39"></label>
     <label>Repository-scoped GitHub token <input name="git-token" type="password" autocomplete="new-password" maxlength="2048"></label>
-    <button type="button" id="network-public-connect" hidden>Use public access</button>
-    <button type="submit">Connect</button>
-    <button type="button" id="network-disable">Disconnect</button>
+    <div class="dialog-actions"><button type="button" id="network-public-connect" hidden>Use public access</button><button type="submit">Connect</button><button type="button" id="network-disable">Disconnect</button></div>
     <output id="network-message" role="status"></output>
   </form>
   <form class="dialog-close" method="dialog"><button>Close</button></form>
 </dialog>
+<dialog id="close-terminal-dialog" aria-labelledby="close-terminal-title">
+  <h2 id="close-terminal-title">Close session?</h2><p>Current processes and scrollback will be discarded.</p>
+  <form method="dialog"><div class="dialog-actions"><button value="cancel">Cancel</button><button value="close">Close session</button></div></form>
+</dialog>
+<dialog id="share-dialog" aria-labelledby="share-heading">
+  <header class="share-heading"><h2 id="share-heading">Terminal sharing</h2><button id="share-close" class="icon-button" type="button" aria-label="Close terminal sharing"><svg class="control-icon" aria-hidden="true"><use href="#icon-close"/></svg></button></header>
+  <div class="share-tabs" role="tablist"><button id="share-tab" role="tab" aria-selected="true">Share</button><button id="share-connect-tab" role="tab" aria-selected="false">Connect</button></div>
+  <section id="share-panel">
+    <p id="share-invite-hint">Create a one-time invite. Approve viewing or control after the peer enters the PIN.</p>
+    <button id="share-generate">Create invite</button>
+    <div id="share-invitation" hidden>
+      <img id="share-qr" alt="Terminal invite QR code" hidden><output id="share-pin"></output><p id="share-expiry"></p>
+      <div class="dialog-actions"><button id="share-copy">Copy TTY link</button><button id="share-cancel">Cancel invite</button><a id="share-open-tty" target="_blank" rel="noopener noreferrer">Open in TTY</a></div>
+      <input id="share-invite-url" aria-label="Terminal invite URL" readonly>
+    </div>
+    <div id="share-approval" hidden>
+      <p id="share-approval-detail"></p><div class="share-permissions" id="share-limits"><label><input id="share-view" type="checkbox" checked> View</label><label><input id="share-write" type="checkbox"> Control</label></div>
+      <div class="dialog-actions"><button id="share-decline">Decline</button><button id="share-approve">Approve and share</button></div>
+    </div>
+    <ul id="share-peers"></ul>
+  </section>
+  <form id="share-join" hidden autocomplete="off">
+    <video id="share-camera" playsinline muted hidden></video><button id="share-scan" type="button">Scan invite QR</button>
+    <label>Invite link <input id="share-link" placeholder="Paste a TTY invite" inputmode="url" autocapitalize="off" spellcheck="false" maxlength="2048" required></label>
+    <fieldset class="share-pin-entry">
+      <legend>Four-character PIN</legend>
+      <div class="share-pin-cells">
+        <input class="share-pin-cell" aria-label="PIN character 1 of 4" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="1" enterkeyhint="next" required>
+        <input class="share-pin-cell" aria-label="PIN character 2 of 4" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="1" enterkeyhint="next" required>
+        <input class="share-pin-cell" aria-label="PIN character 3 of 4" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="1" enterkeyhint="next" required>
+        <input class="share-pin-cell" aria-label="PIN character 4 of 4" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="1" enterkeyhint="go" required>
+      </div>
+    </fieldset>
+    <label>Connect mode <select id="share-mode"><option value="request">Receive a terminal</option><option value="give">Share this terminal</option></select></label>
+    <div class="share-permissions" id="share-offer-limits" hidden><label><input id="share-offer-view" type="checkbox" checked> View</label><label><input id="share-offer-write" type="checkbox"> Control</label></div>
+    <button id="share-verify" type="submit">Verify PIN</button>
+  </form>
+  <output id="share-status" role="status"></output>
+</dialog>
+<!-- tty-sharing-assets -->

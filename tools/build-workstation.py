@@ -66,9 +66,24 @@ def main():
     if args.gateway and (not args.gateway.startswith("https://") or args.output.resolve() == ROOT / "index.html"):
         parser.error("set --gateway only on a separate staging HTML with an HTTPS gateway")
     html = (ROOT / "index.html").read_text()
+    old_viewport = '<meta name="viewport" content="width=device-width, initial-scale=1">'
+    if old_viewport in html:
+        html = replace_once(html, old_viewport, old_viewport.replace('initial-scale=1', 'initial-scale=1, viewport-fit=cover'))
     ui = (ROOT / "workstation-ui.html").read_text().rstrip()
+    sharing = []
+    for name, script_id in (
+        ("qr", "roomQrEncoder"), ("vendor", "tty-share-vendor"), ("transport", "tty-share-transport"),
+    ):
+        script = (ROOT / "vendor" / "tty" / (name + ".js")).read_text()
+        if name == "vendor":
+            script = (ROOT / "vendor" / "tty" / "xterm-notice.js").read_text() + script
+        if "</script" in script.lower():
+            raise SystemExit("TTY asset contains a closing script tag")
+        sharing.append(f'<script id="{script_id}">\n{script}</script>')
+    ui = replace_once(ui, "<!-- tty-sharing-assets -->", "\n".join(sharing))
     code = "\n\n".join((ROOT / name).read_text().rstrip() for name in (
-        "workstation-storage.mjs", "workstation-egress.mjs", "workstation.mjs"
+        "workstation-storage.mjs", "workstation-egress.mjs", "workstation-keyboard.mjs",
+        "workstation-share.mjs", "workstation-terminal.mjs", "workstation.mjs",
     ))
     if "</script" in code.lower():
         raise SystemExit("Inline JavaScript contains a closing script tag")

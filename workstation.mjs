@@ -130,7 +130,10 @@ async function save() {
   status(savedLabel(active.metadata));
 }
 
-function status(message) { byId('save-status').textContent = message; }
+function status(message) {
+  byId('save-status').textContent = message;
+  byId('announcement').textContent = message;
+}
 
 function updateControls() {
   const enabled = workspaceReady && !busy;
@@ -140,6 +143,8 @@ function updateControls() {
   byId('export-state').disabled = !enabled;
   byId('autosave').disabled = !workspaceStorage;
   byId('network-settings').disabled = !enabled;
+  byId('workspace-storage').disabled = !workspaceReady;
+  for (const id of ['upload-files', 'share-workspace', 'connection-sharing']) byId(id).disabled = !workspaceReady;
   byId('storage-protect').disabled = !workspaceStorage || !navigator.storage?.persist;
 }
 
@@ -316,7 +321,13 @@ function ready() {
 
 function networkStatus() {
   if (!egress.connected && networkState === 'ONLINE') networkState = 'AUTH REQUIRED';
-  byId('network-settings').textContent = 'NETWORK: ' + networkState;
+  const button = byId('network-settings');
+  const label = 'NETWORK: ' + networkState;
+  byId('network-label').textContent = label;
+  byId('network-state').textContent = label;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.querySelector('.status-dot').dataset.state = networkState.toLowerCase();
 }
 
 function publicNetworkOnStartup() {
@@ -399,6 +410,34 @@ async function networkCommand(context) {
 }
 
 function installUI() {
+  const menus = new Map([
+    [byId('workspace-settings'), byId('workspace-actions')],
+    [byId('network-settings'), byId('connection-menu')],
+  ]);
+  function toggleMenu(button, open) {
+    menus.get(button).hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+  }
+  for (const [button, menu] of menus) {
+    button.addEventListener('click', () => toggleMenu(button, menu.hidden));
+    menu.addEventListener('click', (event) => {
+      if (event.target.closest('button')) toggleMenu(button, false);
+    });
+  }
+  document.addEventListener('pointerdown', (event) => {
+    for (const [button, menu] of menus) {
+      if (!menu.hidden && !menu.contains(event.target) && !button.contains(event.target)) toggleMenu(button, false);
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    for (const [button, menu] of menus) if (!menu.hidden) { toggleMenu(button, false); button.focus(); }
+  });
+  byId('workspace-storage').addEventListener('click', () => {
+    byId('storage-dialog').showModal();
+    void storageStatus();
+  });
+  byId('upload-files').addEventListener('click', () => byId('files').click());
   byId('autosave').value = String(autosaveSeconds());
   byId('autosave').addEventListener('change', (event) => {
     try { localStorage.setItem(preferenceKey, event.target.value); } catch {}
@@ -454,7 +493,7 @@ function installUI() {
       status(granted ? 'Persistent storage granted' : 'Browser storage is best effort');
     } catch (error) { status(error.message); }
   });
-  byId('network-settings').addEventListener('click', openNetworkSettings);
+  byId('configure-network').addEventListener('click', openNetworkSettings);
   const publicButton = byId('network-public-connect');
   publicButton.hidden = !publicNetwork;
   if (publicNetwork) {
@@ -505,6 +544,7 @@ function installUI() {
     networkStatus();
     if (event.persisted && workspaceReady && publicNetworkOnStartup()) void connectPublicNetwork();
   });
+  networkStatus();
   updateControls();
 }
 
@@ -589,6 +629,17 @@ hostname "$CID" 2>/dev/null || true`);
 }
 
 function adaptEntry(source) {
+  const ptyStart = source.indexOf('let te=await l.spawn(`sh`,[],');
+  const ptyEnd = source.indexOf('let D=!1;return{releaseModels:_,focus(){i.focus()}', ptyStart);
+  if (ptyStart < 0 || ptyEnd <= ptyStart) throw Error('The bundled terminal PTY changed');
+  source = source.slice(0, ptyStart) + String.raw`let terminalManager=await workstation.attachTerminals(l,i,a,ps,gs,Ss,(data,pty)=>{
+    if(typeof data==="string"){
+      if(data.includes("\r")||data.includes("\n"))s.unlock();
+      if(data.includes("\x03"))s.stop();
+      if(data==="\x03"&&p){p.abort(Error("Agent turn interrupted"));return}
+    }
+    return pty.write(data);
+  });` + source.slice(ptyEnd);
   const hooks = [
     ['r.writeFile(`/bin/docker`,H_),r.writeFile(`/bin/agent`,Jx)',
       'r.writeFile(`/bin/docker`,workstation.adaptDocker(H_)),r.writeFile(`/bin/agent`,Jx),r.writeFile(`/bin/alpine-agent`,workstation.alpineAgent),r.writeFile(`/bin/alpine-network`,workstation.alpineNetwork)'],
@@ -599,7 +650,12 @@ function adaptEntry(source) {
     ['memory:new Ux,documentModel:n', 'memory:new Ux(workstation.agentMemory),documentModel:n'],
     ['await u.tools.ensure().catch(e=>{f=e})',
       'await u.tools.ensure();await workstation.prepareTerminal(l,i,S)'],
-    ['let te=await l.spawn(`sh`,[],', 'let te=await l.spawn(`sh`,[`-c`,`docker exec -it botpsy-alpine bash --noprofile --norc -c "cd /workspace; exec bash --noprofile --norc -i"; exec sh -i`],'],
+    ['focus(){i.focus()},async importFile', 'focus(){terminalManager.focus()},async importFile'],
+    ['i.writeln(f?`alpine startup failed: `+f.message:`alpine workspace ready`+(C?` · saved to browser storage`:ee?` · storage unavailable, session only`:``)),', ''],
+    ['i.writeln(`\\x1B[90mmodel unloaded · agent load downloads/caches weights, or agent "task" auto-loads\\x1B[0m`)', 'void 0'],
+    ['i.writeln(`\\x1b[90m${e}\\x1b[0m`)', '(workstation.activeTerminal()??i).writeln(`\\x1b[90m${e}\\x1b[0m`)'],
+    ['E.disconnect(),T.dispose(),i.dispose(),S.close(),g=Promise.allSettled([e,te.close(),l.stop()])',
+      'S.close(),g=Promise.allSettled([e,terminalManager.dispose()]).then(()=>l.stop())'],
     ['gT.remove(),bT.focus(),bT.preloadModel()', 'gT.remove(),bT.focus(),bT.preloadModel(),workstation.ready()'],
     ['Native guest internet commands require a relay.', 'Native HTTP and HTTPS use the workstation proxy after authorization.'],
     ['agent network status | test | direct | fetch URL [PATH] | relay WSS_URL | disable',
@@ -611,6 +667,8 @@ function adaptEntry(source) {
 
 globalThis.workstation = {
   alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, ready, egress,
+  async attachTerminals(...args) { return runtime.terminals = await attachTerminals(...args); },
+  activeTerminal() { return runtime?.terminals?.active?.term; },
   get legacy() { return !!runtime?.legacy; },
   get agentMemory() { return agentMemory ?? {}; },
 };

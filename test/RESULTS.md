@@ -105,3 +105,54 @@ Linux host version `207124c8-c10f-4779-8c09-47e0ae9563ce` was deployed at 100% o
 A clean Chromium profile reached `NETWORK: ONLINE` without submitting credentials. Native guest tests installed Alpine packages, cloned a public GitHub repository, fetched npm metadata via curl, installed `is-number@7.0.0` with npm, and loaded it from Node. An unapproved hostname and Git receive-pack were blocked. Cross-origin requests and a request to the Worker preview hostname returned HTTP 403.
 
 Offline preference survived reload. The guest's `network on` resumed public access. An imported filesystem snapshot waited for explicit enablement. The live network dialog still switched to the authenticated gateway and exposed its private service registry. Run `node test/public-gateway.mjs` for the public policy regression checks.
+
+## TTY workspace interface
+
+The UI and v2 sharing transport use commit `d11a699` of Pointblank TTY. [Reference repository](https://github.com/robit-man/tty/tree/d11a699f2bf573725387ecb5fb08496cf37f1f8d)
+
+The Cloudflare preview for host version `0e99745a-20e9-42d5-bf57-daefac4718d5` served the same `31,640,827` bytes as the rebuilt standalone file. The SHA-256 was `5fe3027cd60aceea0dea97da5831e0061cbfd58d58298ec0da75574e2b89cadc`.
+
+The Chromium suite drove the preview's actual controls and Alpine PTYs and used the running TTY site and its relay. Run the suite locally or set `WORKSTATION_TEST_ORIGIN` to a running release.
+
+```sh
+node test/fixture.mjs
+# Run in a second shell
+node test/terminals.mjs
+# For a deployed release, set WORKSTATION_TEST_ORIGIN to its URL.
+```
+
+| Check | Observed result |
+| --- | --- |
+| Shared Alpine filesystem | One PTY created a file and another read it. An uploaded file appeared under `/workspace/inbox`. Forking a shell opened it in the source pane's working directory. |
+| Desktop panes | Independent text sizes, keyboard-accessible divider resize, drag docking from the sidebar and toolbar, retained scrollback after minimizing, and cancel/confirm close passed. |
+| Linux-issued invite | Live TTY opened a view-only session and lost access on revoke. A second approved control session ran an Alpine command from TTY and showed the result on both sites. |
+| TTY-issued invite | The live TTY site created a QR/PIN invite. Linux offered its selected Alpine terminal and the TTY site displayed that terminal's existing output. |
+| Linux guest viewer | A second Linux browser context opened a v2 invite URL, received a shared pane, and sent approved input to the source Alpine PTY. |
+| Mobile interface | Chromium Pixel 7 emulation passed the compact sidebar, touch text sizing, a key strip anchored to the simulated keyboard viewport, sticky Ctrl, soft Enter, and long-press text selection. |
+| Additional desktop engines | Playwright Firefox 157.0 booted and ran an Alpine command with OPFS. Playwright WebKit 26.5 booted and ran the command with IndexedDB fallback. |
+| Offline artifact | Chromium booted the local HTML with browser networking offline, split the terminal, and read a file made in the other pane. |
+
+Native Git writes and the complete persistence and recovery suite also passed with the revised menus on the local fixture. Physical mobile Safari, Android devices, Edge, and a TTY-hosted SSH terminal as the source of a Linux viewer were outside this release's browser runs. The live TTY tests used browser Alpine as the shared shell.
+
+### Production cutover
+
+Cloudflare deployed host version `0e99745a-20e9-42d5-bf57-daefac4718d5` to 100% of production traffic. The production HTML matched the preview byte for byte. Chromium reopened a workspace checkpoint created by the previous production release and read its file from inside Alpine. The pane, live TTY sharing, and mobile-emulation suite passed again against the production origin. [Production workstation](https://linux.pointblankllc.com/)
+
+A clean profile enabled public egress at startup. Native APK installed Git and curl, Git cloned a public GitHub repository, curl read the approved npm registry, and npm installed `is-number@7.0.0`. Node loaded the installed module. Requests to an unapproved host and anonymous Git write discovery were denied. The offline preference survived a refresh. Importing a portable snapshot left egress off until the guest ran `network on`.
+
+The previous host version is `207124c8-c10f-4779-8c09-47e0ae9563ce`. Restore it with the existing host configuration if rollback is needed.
+
+```sh
+npx --yes wrangler@4.168.0 versions deploy 207124c8-c10f-4779-8c09-47e0ae9563ce@100% --yes --config cloudflare/linux-host.toml
+```
+
+### Interface performance
+
+Median of three fresh headless Chromium launches per production build at 1440 × 850. Startup ran from navigation to the boot indicator disappearing. Terminal round trip ran from clicking the terminal to observing a shell-printed marker. Memory is total renderer-process RSS at startup.
+
+| Measure | Previous production | TTY workspace |
+| --- | ---: | ---: |
+| Standalone HTML | 31,184,257 bytes | 31,640,827 bytes |
+| Startup | 9,931 ms | 10,030 ms |
+| Renderer RSS | 681 MiB | 684 MiB |
+| Terminal round trip | 100 ms | 105 ms |

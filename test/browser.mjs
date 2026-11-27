@@ -25,7 +25,7 @@ async function boot(context) {
 }
 
 async function ready(page) {
-  try { await page.locator('#save-state:enabled').waitFor({ timeout: 120000 }); }
+  try { await page.locator('#add-session:enabled').waitFor({ timeout: 120000 }); }
   catch (error) {
     console.error('Boot', await page.locator('#boot, #save-status').allTextContents());
     throw error;
@@ -48,11 +48,13 @@ async function guest(page, command, timeout = 90000) {
 }
 
 async function connect(page, withGit = true) {
-  if ((await page.locator('#network-settings').innerText()) === 'NETWORK: ONLINE') {
+  if ((await page.locator('#network-label').textContent()) === 'NETWORK: ONLINE') {
     await page.locator('#network-settings').click();
+    await page.locator('#configure-network').click();
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click();
   }
   await page.locator('#network-settings').click();
+  await page.locator('#configure-network').click();
   await page.locator('[name=key]').fill('workstation-fixture-key-with-32-characters');
   if (withGit) {
     await page.locator('[name=repository]').fill('pointblank-fixture/upstream');
@@ -61,6 +63,13 @@ async function connect(page, withGit = true) {
   }
   await page.getByRole('button', { name: 'Connect', exact: true }).click();
   await page.getByRole('button', { name: 'NETWORK: ONLINE', exact: true }).waitFor({ timeout: 20000 });
+}
+
+async function setAutosave(page, value) {
+  await page.locator('#workspace-settings').click();
+  await page.locator('#workspace-storage').click();
+  await page.locator('#autosave').selectOption(value);
+  await page.locator('#storage-dialog').getByRole('button', { name: 'Close', exact: true }).click();
 }
 
 async function status(page, pattern) {
@@ -74,6 +83,7 @@ async function status(page, pattern) {
 }
 
 async function save(page) {
+  await page.locator('#workspace-settings').click();
   await page.locator('#save-state').click();
   await status(page, /^Saved /);
 }
@@ -97,14 +107,14 @@ async function fixture(path, method = 'GET') {
 }
 
 async function verifyWorkspace(page) {
-  assert.equal(await page.locator('#network-settings').innerText(), 'NETWORK: OFFLINE');
+  assert.equal(await page.locator('#network-label').textContent(), 'NETWORK: OFFLINE');
   await guest(page, "apk info -e curl git wget && test \"$(cat /root/kept.txt)\" = home && test \"$(cat /etc/pointblank-test)\" = config && test \"$(cat /workspace/repo/readme.txt)\" = 'updated outside the browser' && cd /workspace/repo && test \"$(git rev-list --count HEAD)\" = 3 && test \"$(git remote get-url origin)\" = https://github.com/pointblank-fixture/upstream.git");
 }
 
 try {
   context = await chromium.launchPersistentContext(profile, launch);
   let page = await boot(context);
-  await page.locator('#autosave').selectOption('0');
+  await setAutosave(page, '0');
   await connect(page);
   await guest(page, 'apk add --no-cache curl git wget', 150000);
   const hash = await (await fixture('script-hash')).text();
@@ -150,12 +160,14 @@ try {
   await verifyWorkspace(page);
   console.log('PASS persistent package, Git history, home, system file, refresh, browser restart, and tab lock');
 
+  await page.locator('#workspace-settings').click();
   await page.locator('#snapshots').click();
   await page.locator('#snapshot-name').fill('Test recovery');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.locator('#snapshot-list').getByText(/Test recovery/).waitFor({ timeout: 120000 });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   const download = page.waitForEvent('download', { timeout: 120000 });
+  await page.locator('#workspace-settings').click();
   await page.locator('#export-state').click();
   await (await download).saveAs(out);
   await status(page, /Workspace exported/);
@@ -170,7 +182,7 @@ try {
 
   context = await chromium.launchPersistentContext(cleanProfile, launch);
   page = await boot(context);
-  await page.locator('#autosave').selectOption('0');
+  await setAutosave(page, '0');
   page.once('dialog', (dialog) => dialog.accept());
   const reloaded = page.waitForEvent('load', { timeout: 120000 });
   await upload(page, out);
@@ -195,6 +207,7 @@ try {
       await new Promise(() => {});
     };
   });
+  await page.locator('#workspace-settings').click();
   await page.locator('#save-state').click();
   await page.locator('body[data-write-paused=yes]').waitFor({ timeout: 120000 });
   await context.close();
@@ -204,6 +217,7 @@ try {
   const cdp = await context.newCDPSession(page);
   await cdp.send('Storage.overrideQuotaForOrigin', { origin, quotaSize: 1024 });
   await guest(page, 'echo quota > /workspace/quota');
+  await page.locator('#workspace-settings').click();
   await page.locator('#save-state').click();
   await status(page, /Storage full/);
   await cdp.send('Storage.overrideQuotaForOrigin', { origin });
@@ -217,24 +231,28 @@ try {
   await context.addInitScript(() => Object.defineProperty(StorageManager.prototype, 'getDirectory', { value: undefined }));
   page = await boot(context);
   assert.match(await page.locator('#storage-usage').innerText(), /IndexedDB/);
-  await page.locator('#autosave').selectOption('30');
+  await setAutosave(page, '30');
   await guest(page, 'echo fallback > /workspace/idb');
   await status(page, /^Saved /);
   await page.reload();
   await ready(page);
   await guest(page, 'test "$(cat /workspace/idb)" = fallback');
-  await page.locator('#autosave').selectOption('0');
+  await setAutosave(page, '0');
+  await page.locator('#workspace-settings').click();
   await page.locator('#snapshots').click();
   await page.locator('#snapshot-name').fill('Before reset');
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await page.locator('#snapshot-list').getByText(/Before reset/).waitFor({ timeout: 120000 });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await guest(page, 'echo new > /workspace/idb');
+  await page.locator('#workspace-settings').click();
   await page.locator('#snapshots').click();
   await replaceWorkspace(page, page.getByRole('button', { name: 'Restore', exact: true }));
   await guest(page, 'test "$(cat /workspace/idb)" = fallback');
+  await page.locator('#workspace-settings').click();
   await replaceWorkspace(page, page.locator('#reset-state'));
   await guest(page, 'test ! -e /workspace/idb');
+  await page.locator('#workspace-settings').click();
   await page.locator('#snapshots').click();
   await page.locator('#snapshot-list').getByText(/Before reset/).waitFor();
   page.once('dialog', (dialog) => dialog.accept());

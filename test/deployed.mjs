@@ -100,6 +100,7 @@ try {
   await guest(page, 'echo stage > /workspace/stage-smoke && test "$(cat /workspace/stage-smoke)" = stage && python3 --version');
   console.log('Upgraded terminal round trip ms', Math.round(performance.now() - start));
   await page.locator('#network-settings').click();
+  await page.locator('#configure-network').click();
   await page.locator('[name=key]').fill(key.trim());
   if (token) {
     await page.locator('[name=repository]').fill(repo);
@@ -155,11 +156,12 @@ try {
   console.log('Browser gateway requests', JSON.stringify(Object.fromEntries(workerRequests)));
   if (process.env.WORKSTATION_VERIFY_SAVE === '1') {
     await guest(page, 'echo durable > /root/production-smoke');
+    await page.locator('#workspace-settings').click();
     await page.locator('#save-state').click();
     await page.waitForFunction(() => document.querySelector('#save-status').textContent.startsWith('Saved '), null, { timeout: 60000 });
     await page.reload();
-    await page.locator('#save-state:enabled').waitFor({ timeout: 90000 });
-    assert.equal(await page.locator('#network-settings').innerText(), 'NETWORK: OFFLINE');
+    await page.locator('#add-session:enabled').waitFor({ timeout: 90000 });
+    assert.equal(await page.locator('#network-label').textContent(), 'NETWORK: OFFLINE');
     await guest(page, 'test "$(cat /root/production-smoke)" = durable && apk info -e curl git wget && test -f /workspace/public/.git/HEAD');
     console.log('PASS deployed workspace saves and restores with networking offline');
   }
