@@ -9,11 +9,18 @@ import re
 import subprocess
 import tarfile
 import tempfile
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_IMAGE = "/oci/registry-1.docker.io_library_python_3.13-alpine/"
 BUILD_IMAGE = "alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
-PACKAGES = ("git", "git-init-template", "nodejs", "npm", "apt")
+CLOUDFLARED_VERSION = "2026.11.2"
+CLOUDFLARED_SHA256 = "04a7b7f08bce85d56b26ffe1fdbfbb21a074495a363d16f0783c40e25b5c5281"
+CLOUDFLARED_LICENSE_SHA256 = "58d1e17ffe5109a7ae296caafcadfdbe6a7d176f0bc4ab01e12a689b0499d8bd"
+PACKAGES = (
+    "git", "git-init-template", "nodejs", "npm", "apt",
+    "curl", "jq", "ripgrep", "nano", "make", "patch", "file", "zip", "btop",
+)
 INSTALL = """
 mkdir /target
 for layer in /input/base-*.tar.gz; do
@@ -24,6 +31,8 @@ tar -czf /input/before.tar.gz -C /target .
 # in the world file so normal apk upgrades inside Alpine remain available.
 apk --root /target --arch aarch64 --no-scripts --no-cache add "$@"
 apk --root /target list --installed "$@"
+install -Dm755 /input/cloudflared /target/usr/local/bin/cloudflared
+install -Dm644 /input/cloudflared-license /target/usr/share/licenses/cloudflared/LICENSE
 # Recreate APT's pre-install sandbox account with host tools. Guest package
 # scripts are disabled because the build container may have a different CPU.
 apk --no-cache add shadow >/dev/null
@@ -44,6 +53,28 @@ def copy_base_layers(directory):
     metadata = json.loads(payload("meta.json"))
     for index, layer in enumerate(metadata["layers"]):
         (directory / f"base-{index:03d}.tar.gz").write_bytes(payload(layer["file"]))
+
+
+def fetch_verified(url, sha256, destination):
+    with urllib.request.urlopen(url, timeout=60) as response:
+        data = response.read()
+    if hashlib.sha256(data).hexdigest() != sha256:
+        raise ValueError(f"Unexpected SHA-256 for {url}")
+    destination.write_bytes(data)
+
+
+def copy_cloudflared(directory):
+    release = directory / "cloudflared-release"
+    fetch_verified(
+        f"https://github.com/cloudflare/cloudflared/releases/download/{CLOUDFLARED_VERSION}/cloudflared-linux-arm64",
+        CLOUDFLARED_SHA256, release,
+    )
+    fetch_verified(
+        f"https://raw.githubusercontent.com/cloudflare/cloudflared/{CLOUDFLARED_VERSION}/LICENSE",
+        CLOUDFLARED_LICENSE_SHA256, directory / "cloudflared-license",
+    )
+    # Drop debug symbols to keep the standalone HTML below GitHub's file limit.
+    subprocess.run(["llvm-strip", "--strip-all", "-o", directory / "cloudflared", release], check=True)
 
 
 def entries(archive):
@@ -89,6 +120,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pointblank-dev-layer-") as temp:
         directory = Path(temp)
         copy_base_layers(directory)
+        copy_cloudflared(directory)
         subprocess.run([
             "docker", "run", "--rm", "--runtime", "runc",
             "--mount", f"type=bind,src={directory},dst=/input", BUILD_IMAGE,

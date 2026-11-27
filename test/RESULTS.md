@@ -250,3 +250,13 @@ Production Chromium passed the same local package and persistence tests, plus na
 The Alpine prompt now shows the working directory and Bash's privilege marker. The Chromium preview tests verified `/workspace #`, the update after `cd`, independent directories in split panes, and the inherited directory in a forked pane. Mobile Chromium also verified changing directory with the on-screen Enter control. iPhone-emulated WebKit verified a directory containing a space.
 
 Host version `f88d4559-db8f-47c1-916a-30bade311c78` serves production at 100%. The tested HTML has SHA-256 `c43d34c2b113156016e24e60c30cdfd0750776440d6cdfe5fb9cf89f65f3a224`. The rollback host version is `b64cdfdf-4229-486e-9e16-2bdbc3042622`.
+
+## Portable workstation tools
+
+The starter includes curl, jq, ripgrep, nano, make, patch, file, zip, and btop 1.4.6 from signed Alpine 3.24 packages. It also includes Cloudflare's ARM64 cloudflared 2026.11.2 with debug symbols stripped. The development layer is 51,786,785 bytes and the standalone HTML is 103,074,595 bytes.
+
+The browser suite exercises JSON processing, patching, a Make target, file identification and ZIP round trips. Its interactive checks open the btop process list and save a file in nano using Ctrl+O. It also checks local cloudflared ingress validation and exclusion of credentials from workspace saves. Actual Cloudflare Tunnel connections require port 7844 egress.
+
+The suite passed on the Cloudflare preview. A snapshot with the verified cloudflared binary passed validation. Modifying that binary without changing its size, or adding a cloudflared credential file, caused validation to reject the archive.
+
+Host version `be03d733-4b97-49f3-87dc-7bd5cf81f569` serves production at 100%. The tested HTML has SHA-256 `ce49b94b00b1b2deb153741d42a9dd1f25044e105c4bdfd51d6b661199b5f148`. The rollback host version is `f88d4559-db8f-47c1-916a-30bade311c78`.

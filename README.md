@@ -1,10 +1,12 @@
 # Pointblank Linux
 
-Pointblank Linux boots a client-side Alpine 3.24 aarch64 workspace with Bash, Python, and the existing browser agent. The workspace opens in `/workspace`. Type `agent` for the interactive agent. **Maintenance shell** in the workspace menu opens the outer Linux shell and its Docker commands. Drop normal files on the terminal or use Ctrl+O to copy them to `/workspace/inbox`. Model weights are fetched separately when requested.
+Pointblank Linux boots a client-side Alpine 3.24 aarch64 workspace with Bash, Python, and the existing browser agent. The workspace opens in `/workspace`. Type `agent` for the interactive agent. **Maintenance shell** in the workspace menu opens the outer Linux shell and its Docker commands. Drop files on the terminal or choose **Upload files** to copy them to `/workspace/inbox`. Ctrl+O opens the file picker when focus is outside the terminal. Model weights are fetched separately when requested.
 
 ## Development tools
 
-Fresh and reset workspaces include Git 2.54.1, Node.js 24.22.3, and npm 11.12.1. You can initialize a repository, create a Node project, and run local scripts as soon as the shell opens, including from a downloaded copy of the HTML. Saved and imported workspaces restore their own package set. To install these tools in an older workspace, run `apk add git git-init-template nodejs npm`.
+Fresh and reset workspaces include Git, Node.js, npm, APT, curl, jq, ripgrep (`rg`), nano, make, patch, file, zip, btop, and cloudflared. These tools are available from a downloaded copy of the HTML. Saved and imported workspaces restore their own package set. In an older workspace, run `apk add curl jq ripgrep nano make patch file zip btop` to install the utilities available from the stable Alpine repositories.
+
+The bundled cloudflared can validate local ingress rules. Running a Cloudflare Tunnel from the browser guest requires outbound TCP or UDP port 7844, which is outside the workspace's HTTP and HTTPS gateway. [Cloudflare Tunnel ports](https://developers.cloudflare.com/tunnel/configuration/#firewall-rules)
 
 Use `apk add` for Alpine system packages and `npm install` for JavaScript dependencies. APT manages Debian packages. [Alpine packages](https://pkgs.alpinelinux.org/packages?branch=v3.24&arch=aarch64) · [Debian APT](https://wiki.debian.org/Apt/)
 
@@ -55,7 +57,7 @@ The bundled unkernel exposes `KernelInstance.snapshot()` and `createKernel({ res
 
 ## Authorized native networking
 
-[linux.pointblankllc.com](https://linux.pointblankllc.com/) connects to public networking before opening a fresh or ordinary saved shell. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
+[linux.pointblankllc.com](https://linux.pointblankllc.com/) connects to public networking before opening a fresh or ordinary saved shell. Use native Git for public GitHub repositories, curl for approved HTTP services, and APK and npm for approved package sources.
 
 New workspaces include Git, Node.js, npm, and Alpine's native build of `apt` with `dpkg`. Use `apt install /path/to/package.deb` for local Debian packages compatible with the guest. Use `apk add` for Alpine system packages. Debian repositories are unconfigured by default. Existing workspaces can add APT with `apk add apt`.
 
@@ -82,6 +84,8 @@ npx --yes wrangler@4.168.0 versions deploy VERSION_ID@100% --yes --config cloudf
 Production uses the existing `browser-agent` hosting Worker at `https://linux.pointblankllc.com` and a dedicated `pointblank-linux-network` Worker at `https://network.pointblankllc.com`. Preserve the app origin to preserve existing workspaces. The host build splits the exact HTML bytes into pieces under Cloudflare's 25 MiB per-asset limit. It streams them as one fixed-length HTML response. The optional `--kernel` argument verifies the pinned WASM when embedding a replacement. [Cloudflare asset limits](https://developers.cloudflare.com/workers/platform/limits/#static-assets)
 
 Ordinary builds reuse the embedded development layer. To refresh the layer, use Docker to resolve and verify packages from the Alpine 3.24 repositories for the guest architecture, then rebuild the HTML with the resulting archive. [Alpine aports](https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.24-stable)
+
+The layer builder verifies Cloudflare's pinned ARM64 release by SHA-256 and uses `llvm-strip` on the build host to remove debug symbols. [cloudflared releases](https://github.com/cloudflare/cloudflared/releases)
 
 ```sh
 python3 tools/build-development-layer.py /tmp/pointblank-development.tar.gz

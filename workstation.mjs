@@ -714,6 +714,8 @@ function adaptEntry(source) {
     ['await u.tools.ensure().catch(e=>{f=e})',
       'await u.tools.ensure();await workstation.prepareTerminal(l)'],
     ['focus(){i.focus()},async importFile', 'focus(){terminalManager.focus()},async importFile'],
+    ['e.key.toLowerCase()!==`o`||(e.preventDefault(),e.stopPropagation(),_T.click())',
+      'e.key.toLowerCase()!==`o`||(e.ctrlKey&&!e.metaKey&&e.target?.closest?.(`.xterm`))||(e.preventDefault(),e.stopPropagation(),_T.click())'],
     ['i.writeln(f?`alpine startup failed: `+f.message:`alpine workspace ready`+(C?` · saved to browser storage`:ee?` · storage unavailable, session only`:``)),', ''],
     ['i.writeln(`\\x1B[90mmodel unloaded · agent load downloads/caches weights, or agent "task" auto-loads\\x1B[0m`)', 'void 0'],
     ['i.writeln(`\\x1b[90m${e}\\x1b[0m`)', '(workstation.activeTerminal()??i).writeln(`\\x1b[90m${e}\\x1b[0m`)'],

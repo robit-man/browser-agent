@@ -20,11 +20,15 @@ ASSET_BYTES = 24 * 1024 * 1024
 DEVELOPMENT_NOTICE = """## Alpine development tools
 
 The default Alpine image includes Git and its templates (GPL-2.0-only),
-Node.js (MIT), npm (Artistic-2.0), APT (GPL-2.0-or-later), and their dependencies
-from the signed Alpine 3.24 aarch64 repositories. Run `apk list --installed` to see the
-bundled versions, package origins, and licenses. Alpine publishes build
+Node.js (MIT), npm (Artistic-2.0), APT (GPL-2.0-or-later), curl, jq, ripgrep,
+nano, make, patch, file, zip, btop, and their dependencies from the signed Alpine
+3.24 aarch64 repositories. The image includes Cloudflare's pinned Linux ARM64
+cloudflared release (Apache-2.0), with debug symbols stripped. Run
+`apk list --installed` to see the bundled Alpine package versions, origins,
+and licenses. Alpine publishes build
 recipes, patches, and corresponding source locations in aports.
 https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.24-stable
+https://github.com/cloudflare/cloudflared
 
 """
 UI_START = "<!-- workstation UI start -->"
