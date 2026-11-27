@@ -53,6 +53,7 @@ async function readInvite(page) {
 try {
   const desktop = await browser.newContext({ viewport: { width: 1440, height: 850 } });
   const page = await boot(desktop);
+  await output(page, '/workspace #', terminal(1));
   await run(page, "echo same-alpine > /workspace/terminal-test && echo shared-fs-written", terminal(1));
   await output(page, 'shared-fs-written', terminal(1));
   await workspaceAction(page, 'split-right');
@@ -90,14 +91,17 @@ try {
   await output(page, 'shared-upload', terminal(2));
   await run(page, 'mkdir -p /workspace/working && cd /workspace/working && echo working-cwd', terminal(2));
   await output(page, 'working-cwd', terminal(2));
+  await output(page, '/workspace/working #', terminal(2));
+  await output(page, '/workspace #', terminal(1));
   await page.locator(terminal(2) + ' .pane-fork').click();
   await page.locator(terminal(4) + '[data-state=online]').waitFor();
+  await output(page, '/workspace/working #', terminal(4));
   await run(page, 'pwd', terminal(4));
   await output(page, '/workspace/working', terminal(4));
   await page.locator(terminal(4) + ' .pane-close').click();
   await page.locator('#close-terminal-dialog button[value=close]').click();
   await page.locator(terminal(4)).waitFor({ state: 'detached' });
-  console.log('PASS same Alpine filesystem, independent text sizes, resize, drag docking, minimize, confirmed close, file upload and fork in the same directory');
+  console.log('PASS shared filesystem, current directory prompts, fork in the same directory, text sizing, docking, minimize, close and file upload');
 
   if (!process.env.SKIP_TTY_SHARING) {
     const tty = await desktop.newPage();
@@ -211,6 +215,7 @@ try {
   await phone.locator('#toggle-sessions').tap();
   await phone.locator('#add-sidebar-session').tap();
   await phone.locator(terminal(2) + '[data-state=online]').waitFor();
+  await output(phone, '/workspace #', terminal(2));
   await phone.locator(terminal(2) + ' .xterm-screen').tap({ position: { x: 20, y: 20 } });
   await phone.locator(terminal(2) + ' .xterm-helper-textarea').focus();
   await phone.evaluate(() => {
@@ -221,6 +226,9 @@ try {
   await keys.waitFor();
   const keyBounds = await keys.boundingBox();
   assert.ok(Math.abs(keyBounds.y + keyBounds.height - 500) < 2);
+  await phone.keyboard.insertText('cd /tmp');
+  await keys.getByRole('button', { name: 'Enter', exact: true }).tap();
+  await output(phone, '/tmp #', terminal(2));
   await phone.keyboard.insertText('discard this draft');
   await keys.getByRole('button', { name: 'Ctrl', exact: true }).tap();
   await phone.keyboard.insertText('u');
@@ -259,8 +267,10 @@ try {
   await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: row.x + 14, y: row.y + row.height / 2 }] });
   await phone.waitForTimeout(520);
   await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await phone.locator('#term-copy:enabled').waitFor({ timeout: 5000 });
-  await phone.keyboard.press('Escape');
+  const copy = phone.locator('#term-copy:enabled');
+  await copy.waitFor({ timeout: 5000 });
+  await copy.press('Escape');
+  await phone.locator('#term-menu').waitFor({ state: 'hidden' });
   await phone.locator(terminal(2) + ' .pane-label').tap();
   await phone.locator('#pane-font-larger').tap();
   assert.equal(await phone.locator('#pane-font-value').textContent(), '14 px');

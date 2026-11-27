@@ -244,3 +244,9 @@ The offline Chromium test built a local `.deb`, installed it with `apt install`,
 The Chromium development tools suite passed on the Cloudflare preview. Host version `b64cdfdf-4229-486e-9e16-2bdbc3042622` serves production at 100%. The production HTML matched the preview and standalone file byte for byte with SHA-256 `1fd3b44589a7ca514bf389f31e4540f0158f953be233f9640c8d265a9b0da8e7`. The rollback host version is `4f7da3d2-3ef0-40e2-919a-6362e8d5b906`.
 
 Production Chromium passed the same local package and persistence tests, plus native `apk add`, HTTPS Git clone, and `npm install`. The production WebKit iPhone-emulation input suite also passed.
+
+## Current directory in the shell prompt
+
+The Alpine prompt now shows the working directory and Bash's privilege marker. The Chromium preview tests verified `/workspace #`, the update after `cd`, independent directories in split panes, and the inherited directory in a forked pane. Mobile Chromium also verified changing directory with the on-screen Enter control. iPhone-emulated WebKit verified a directory containing a space.
+
+Host version `f88d4559-db8f-47c1-916a-30bade311c78` serves production at 100%. The tested HTML has SHA-256 `c43d34c2b113156016e24e60c30cdfd0750776440d6cdfe5fb9cf89f65f3a224`. The rollback host version is `b64cdfdf-4229-486e-9e16-2bdbc3042622`.
