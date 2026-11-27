@@ -336,7 +336,6 @@ function newEgress() {
           await writer.write(await (await sessionCertificates).sign(host));
           return 0;
         }
-        const signal = AbortSignal.any([ctx.signal, generation.signal, AbortSignal.timeout(65000)]);
         const parts = [];
         let size = 0;
         const reader = ctx.stdin.getReader();
@@ -354,6 +353,15 @@ function newEgress() {
         if (type !== 'request' || newline < 0 || newline > 16384) throw Error('Invalid proxy request');
         const { target, method, headers, length } = JSON.parse(decoder.decode(bytes.subarray(0, newline)));
         const url = new URL(target);
+        const gitPack = isGitPackDownload(url, method);
+        let responseLimit = gitPack ? await gitDownloadAllowance() : maxResponse;
+        const gitIdle = gitPack ? new AbortController() : null;
+        const signal = AbortSignal.any([ctx.signal, generation.signal,
+          gitIdle?.signal ?? AbortSignal.timeout(65000)]);
+        async function read(activeRead) {
+          const timer = gitIdle && setTimeout(() => gitIdle.abort(), gitPackTimeoutMs + 5000);
+          try { return await activeRead(); } finally { clearTimeout(timer); }
+        }
         const body = bytes.subarray(newline + 1);
         if (length !== body.length || length > maxRequest) throw Error('Invalid proxy body');
         const access = currentPermission();
@@ -362,7 +370,7 @@ function newEgress() {
           await writer.write('Enable authorized networking in the browser toolbar\n');
           return 0;
         }
-        const response = await requestUpstream(access, url, method, headers, body, signal);
+        const response = await read(() => requestUpstream(access, url, method, headers, body, signal));
         const safe = {};
         for (const key of ['accept-ranges', 'content-range', 'content-type', 'etag', 'last-modified', 'location']) {
           if (response.headers.has(key)) safe[key] = response.headers.get(key);
@@ -373,10 +381,14 @@ function newEgress() {
           let sent = 0;
           try {
             for (;;) {
-              const { value, done } = await stream.read();
+              const { value, done } = await read(() => stream.read());
               if (done) break;
               sent += value.length;
-              if (sent > maxResponse) throw Error('Proxy response exceeds 64 MiB');
+              if (sent > responseLimit) {
+                if (!gitPack) throw Error('Proxy response exceeds ' + responseLimit / MiB + ' MiB');
+                if (!await requestWorkspaceGrowth('This Git download needs more than the default workspace allowance.')) return 1;
+                responseLimit = Infinity;
+              }
               await writer.write(value);
             }
           } finally { await stream.cancel().catch(() => {}); }

@@ -5,6 +5,7 @@ let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
 const egress = newEgress();
 const workspaceGroup = '/sys/fs/cgroup/pointblank-workspace';
+const workspaceMemoryMiB = 512;
 const byId = (id) => document.getElementById(id);
 const checkpointKeys = ['checkpoint-a', 'checkpoint-b'];
 const preferenceKey = 'pointblank-linux-autosave';
@@ -97,14 +98,20 @@ async function capture(name) {
       'for i in $(seq 1 30); do grep -q "^frozen 1$" ' + workspaceGroup +
       '/cgroup.events && exit 0; sleep 0.1; done; exit 1');
     proc = await vm.spawn('/bin/sh', ['-c', command], { pty: false });
-    timer = setTimeout(() => proc.kill('TERM'), 120000);
+    const armTimeout = () => { timer = setTimeout(() => proc.kill('TERM'), 120000); };
+    armTimeout();
     await proc.stdin.close();
     const limiter = new TransformStream({
       start() { this.bytes = 0; },
-      transform(chunk, controller) {
+      async transform(chunk, controller) {
+        clearTimeout(timer);
         this.bytes += chunk.byteLength;
-        if (this.bytes > maxFilesystem) throw Error('Filesystem exceeds 196 MiB');
+        if (this.bytes > maxFilesystem && !growthAllowed &&
+            !await requestWorkspaceGrowth('Saving this workspace requires more than the default allowance.')) {
+          throw Error('Workspace save canceled at the default allowance');
+        }
         controller.enqueue(chunk);
+        armTimeout();
       },
     });
     const archive = new Response(proc.stdout.pipeThrough(limiter).pipeThrough(new CompressionStream('gzip'))).blob();
@@ -116,7 +123,11 @@ async function capture(name) {
     await proc?.close().catch(() => {});
     await guestExec(vm, 'echo 0 > ' + workspaceGroup + '/cgroup.freeze');
   }
-  if (!tar.size || tar.size > maxArchive) throw Error('Snapshot exceeds 128 MiB');
+  if (!tar.size) throw Error('The workspace snapshot is empty');
+  if (tar.size > maxArchive && !growthAllowed &&
+      !await requestWorkspaceGrowth('The compressed snapshot exceeds the default allowance.')) {
+    throw Error('Workspace save canceled at the default allowance');
+  }
   await validateTar(tar, egress.secrets);
   return { metadata: { ...snapshotMetadata(name, true), bytes: tar.size, sha256: await digest(tar) }, tar };
 }
@@ -272,8 +283,16 @@ async function prepareGuest(vm) {
   await guestExec(vm, 'mkdir -p ' + workspaceGroup + ' && test -f ' + workspaceGroup + '/cgroup.freeze');
   await egress.setup(vm);
   await guestExec(vm, 'cat > ' + proxyRoot + '/proxy.py', { input: proxyProgram });
+  if (growthAllowed) await permitWorkspaceGrowth(vm);
   if (startup) {
-    await guestExec(vm, 'cat > /tmp/pointblank-restore.tar.gz', { input: new Uint8Array(await startup.tar.arrayBuffer()) });
+    const restore = await vm.spawn('/bin/sh', ['/mnt/oci/bin/docker', 'prepare-restore'], { pty: false });
+    try {
+      const [, stderr] = await Promise.all([startup.tar.stream().pipeTo(restore.stdin),
+        new Response(restore.stderr).text(), restore.ended]);
+      if (restore.exitCode !== 0) throw Error(stderr.trim() || 'Could not restore the Alpine filesystem');
+    } finally {
+      await restore.close().catch(() => {});
+    }
   }
 }
 
@@ -317,6 +336,7 @@ function ready() {
   if (workspaceStorage && storageHealthy && !pendingRecovery) status(active && !active.metadata.reset ? savedLabel(active.metadata) : 'Ready to save');
   updateControls();
   scheduleAutosave();
+  watchWorkspaceGrowth();
   if (runtime?.legacy && workspaceStorage && storageHealthy) void operation('Migrating the previous workspace…', save);
 }
 
@@ -602,23 +622,46 @@ function replaceRequired(source, anchor, replacement) {
 }
 
 function adaptDocker(script) {
+  const tmpfs = '    mount -t tmpfs -o size=220M tmpfs "$DOCKER_ROOT" 2>/dev/null || true';
+  script = replaceRequired(script, tmpfs, `    for device in /dev/wd*; do
+      if [ -b "$device" ] && blkid "$device" | grep -q 'LABEL="pointblank-live"'; then
+        mount -t ext4 "$device" "$DOCKER_ROOT" && break
+      fi
+    done
+    if ! grep -q " $DOCKER_ROOT " /proc/mounts; then
+      mount -t tmpfs -o size=420M tmpfs "$DOCKER_ROOT"
+    fi`);
+  script = replaceRequired(script, '  run) cmd_run "$@" ;;', `  allow-workspace-growth)
+    ensure_storage
+    if [ -f "$DOCKER_ROOT/.pointblank-reserve" ]; then
+      rm "$DOCKER_ROOT/.pointblank-reserve"
+    elif grep -q " $DOCKER_ROOT tmpfs " /proc/mounts; then
+      mount -o remount,size=0 "$DOCKER_ROOT"
+    fi
+    ;;
+  prepare-restore)
+    ensure_storage
+    mkdir "$DOCKER_ROOT/.restore"
+    tar -xzf - -C "$DOCKER_ROOT/.restore"
+    ;;
+  run) cmd_run "$@" ;;`);
   if (oci['/oci/registry-1.docker.io_pointblank_workstation_3.24/meta.json']) {
     const ensureImage = '  IMG_KEY=$(_oci ensure "$IMAGE")\n  IMG_SRC="$OCI_MNT/images/$IMG_KEY"';
-    script = replaceRequired(script, ensureImage, `  if [ "$CUSTOM_NAME" = botpsy-alpine ] && [ ! -f /tmp/pointblank-restore.tar.gz ]; then
+    script = replaceRequired(script, ensureImage, `  if [ "$CUSTOM_NAME" = botpsy-alpine ] && [ ! -d "$DOCKER_ROOT/.restore" ]; then
     IMAGE=pointblank/workstation:3.24
   fi
 ` + ensureImage);
   }
-  script = replaceRequired(script, '  prepare_image_layers "$IMG_KEY"\n  LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")', `  if [ "$CUSTOM_NAME" != botpsy-alpine ] || [ ! -f /tmp/pointblank-restore.tar.gz ]; then
+  script = replaceRequired(script, '  prepare_image_layers "$IMG_KEY"\n  LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")', `  if [ "$CUSTOM_NAME" != botpsy-alpine ] || [ ! -d "$DOCKER_ROOT/.restore" ]; then
     prepare_image_layers "$IMG_KEY"
     LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")
   fi`);
   const start = script.indexOf('  # Mount real Linux overlayfs');
   const end = script.indexOf('  # Minimal container virtual filesystems');
   if (start < 0 || end <= start) throw Error('The bundled container setup changed');
-  script = script.slice(0, start) + `  if [ "$CNAME" = botpsy-alpine ] && [ -f /tmp/pointblank-restore.tar.gz ]; then
-    tar -xzf /tmp/pointblank-restore.tar.gz -C "$CDIR/merged"
-    rm /tmp/pointblank-restore.tar.gz
+  script = script.slice(0, start) + `  if [ "$CNAME" = botpsy-alpine ] && [ -d "$DOCKER_ROOT/.restore" ]; then
+    rmdir "$CDIR/merged"
+    mv "$DOCKER_ROOT/.restore" "$CDIR/merged"
   else
     mount -t overlay overlay -o "lowerdir=$LOWER,upperdir=$CDIR/upper,workdir=$CDIR/work" "$CDIR/merged"
   fi
@@ -659,6 +702,8 @@ function adaptEntry(source) {
     return pty.write(data);
   });` + source.slice(ptyEnd);
   const hooks = [
+    ['kernel:await nb(M_),memoryMiB:256,', 'kernel:await nb(M_),memoryMiB:' + workspaceMemoryMiB + ','],
+    ['disks:ee?[{kind:`data`,template:`bundled`,name:`browser-agent`}]:[],', 'disks:await workstation.disks(ee),'],
     ['r.writeFile(`/bin/docker`,H_),r.writeFile(`/bin/agent`,Jx)',
       'r.writeFile(`/bin/docker`,workstation.adaptDocker(H_)),r.writeFile(`/bin/agent`,Jx),r.writeFile(`/bin/alpine-agent`,workstation.alpineAgent),r.writeFile(`/bin/alpine-network`,workstation.alpineNetwork)'],
     ['S=new Kx(Gh),ee=x.get(`persist`)===`1`',
@@ -685,6 +730,7 @@ function adaptEntry(source) {
 
 globalThis.workstation = {
   alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, ready, egress,
+  disks: workspaceDisks,
   async attachTerminals(...args) { return runtime.terminals = await attachTerminals(...args); },
   activeTerminal() { return runtime?.terminals?.active?.term; },
   get legacy() { return !!runtime?.legacy; },

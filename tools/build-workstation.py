@@ -135,6 +135,7 @@ def main():
     parser.add_argument("--kernel", type=Path, help="Use a local copy of the pinned kernel instead of downloading it")
     parser.add_argument("--gateway", help="Set the HTTPS egress URL for a staging artifact")
     parser.add_argument("--development-layer", type=Path, help="Embed a replacement Alpine development layer")
+    parser.add_argument("--workspace-disk", type=Path, help="Embed a sparse ext4 workspace template")
     parser.add_argument("--split-assets", type=Path, help="Write Worker asset fragments below Cloudflare's per-file limit")
     args = parser.parse_args()
     if args.gateway and (not args.gateway.startswith("https://") or args.output.resolve() == ROOT / "index.html"):
@@ -155,8 +156,10 @@ def main():
             raise SystemExit("TTY asset contains a closing script tag")
         sharing.append(f'<script id="{script_id}">\n{script}</script>')
     ui = replace_once(ui, "<!-- tty-sharing-assets -->", "\n".join(sharing))
-    code = "\n\n".join((ROOT / name).read_text().rstrip() for name in (
-        "workstation-storage.mjs", "workstation-egress.mjs", "workstation-keyboard.mjs",
+    network_limits = (ROOT / "workstation-network-limits.mjs").read_text()
+    inline_limits = "\n".join(line.removeprefix("export ") for line in network_limits.splitlines())
+    code = inline_limits + "\n\n" + "\n\n".join((ROOT / name).read_text().rstrip() for name in (
+        "workstation-storage.mjs", "workstation-growth.mjs", "workstation-egress.mjs", "workstation-keyboard.mjs",
         "workstation-share.mjs", "workstation-terminal.mjs", "workstation.mjs",
     ))
     if "</script" in code.lower():
@@ -191,7 +194,9 @@ def main():
             marker = "The Alpine workspace includes the signed GNU Bash"
             html = replace_once(html, marker, DEVELOPMENT_NOTICE + marker)
             match = DATA.search(html)
-    if linked or args.offline or args.kernel or args.development_layer:
+    if args.workspace_disk:
+        data["payloads"]["pointblank-workspace-disk"] = base64.b64encode(args.workspace_disk.read_bytes()).decode()
+    if linked or args.offline or args.kernel or args.development_layer or args.workspace_disk:
         html = html[:match.start(2)] + json.dumps(data, separators=(",", ":")) + html[match.end(2):]
     if args.gateway:
         tag = '<meta name="workstation-gateway" content="' + html_tools.escape(args.gateway.rstrip('/'), quote=True) + '">'

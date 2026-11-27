@@ -45,7 +45,7 @@ A `.pblinux` file has this binary layout.
 | Header | UTF-8 JSON |
 | Payload | Gzip-compressed BusyBox-compatible tar of the Alpine filesystem |
 
-The header contains `format` (`pointblank-linux-filesystem`), `version` (1), `compatibility` (`alpine-3.24-aarch64-python3.13-rootfs-v1`), `createdAt` (ISO 8601 UTC), `name`, `offline` (true), `bytes` (compressed payload length), and the lowercase hex `sha256` of the compressed payload. Automatic checkpoints additionally track a browser-local generation. Portability limits are 128 MiB compressed and 196 MiB expanded, subject to guest memory and browser quota.
+The header contains `format` (`pointblank-linux-filesystem`), `version` (1), `compatibility` (`alpine-3.24-aarch64-python3.13-rootfs-v1`), `createdAt` (ISO 8601 UTC), `name`, `offline` (true), `bytes` (compressed payload length), and the lowercase hex `sha256` of the compressed payload. Automatic checkpoints additionally track a browser-local generation. The default allowances are 320 MiB compressed and 384 MiB expanded. Growth approval lifts these byte allowances, subject to browser quota and processing memory. Older releases have smaller restore limits.
 
 Archive validation checks both tar headers and the compressed SHA-256, supported entry types, path confinement, and required Alpine files. The archive carries normal files, directories, symlinks, hard links, and tar ownership, permissions, and timestamps. Extended attributes, ACLs, special files, kernel mounts, logs, temporary files, outer Docker containers, and process state are outside this format. Restore performs a fresh boot into the archived filesystem. Import snapshots from sources you trust.
 
@@ -56,6 +56,10 @@ The bundled unkernel exposes `KernelInstance.snapshot()` and `createKernel({ res
 ## Authorized native networking
 
 [linux.pointblankllc.com](https://linux.pointblankllc.com/) connects to public networking before opening a fresh or ordinary saved shell. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
+
+The default workspace allowance is about 420 MiB, including the Alpine starter filesystem. Git clone and fetch pause for approval before a pack uses the remaining allowance or reaches 256 MiB. A dialog also appears when local writes leave less than 16 MiB available. If a local command has already hit its filesystem limit, retry it after approving. **Storage and autosave → Allow workspace growth** opens the same dialog.
+
+Approval lifts the app's byte allowances and persists for this browser. The browser-backed ext4 disk is sparse and allocates space as written, up to browser quota and the 1 TiB virtual disk capacity. Browsers without a writable workspace disk use a RAM-backed filesystem and remain subject to guest RAM. The Git pack and checked-out files both count toward workspace use.
 
 For private Git or push, open the status dot's **Networking** dialog and enter the workspace egress key, a GitHub username, and a fine-grained token scoped to the authorized repository and Contents permissions. A repository-specific GitHub App installation token also works. The repository must allow writes in the authenticated gateway policy. GitHub applies the token's permissions and branch rules. [GitHub token permissions](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
 
@@ -81,6 +85,8 @@ Ordinary builds reuse the embedded development layer. To refresh the layer, use 
 python3 tools/build-development-layer.py /tmp/pointblank-development.tar.gz
 python3 tools/build-workstation.py --development-layer /tmp/pointblank-development.tar.gz --split-assets cloudflare/.release-assets
 ```
+
+The standalone build reuses the embedded workspace disk template. To rebuild that template on a Linux host with e2fsprogs, run `python3 tools/build-workspace-disk.py /tmp/pointblank-disk.kwsparse.gz`, then pass `--workspace-disk /tmp/pointblank-disk.kwsparse.gz` to `tools/build-workstation.py`.
 
 Deploy the same build to a staging host with an isolated egress Worker first. The build's `--gateway` option sets the staging gateway in a separate output HTML. Set staging's `WORKSTATION_ORIGINS` and the diagnostics binding to the staging host. The [release results](test/RESULTS.md) list the tested deployments and commands.
 

@@ -198,3 +198,27 @@ The browser suite proved that a normal workspace saved during a disconnected vis
 Host version `946cac27-fa3f-44a4-88fa-66bb529b5742` serves production at 100%. The deployed bytes matched the staged HTML and local artifact with SHA-256 `2924b3e28095a463473e4d1bbf5e4f2561d6fb2364353f4221fee115514b6101`. The rollback version is `c2b085c9-c538-4f93-bb41-61742e4b8138`.
 
 Run `node test/public-startup.mjs` for the browser regression suite. Set `WORKSTATION_STARTUP_SMOKE=1` to run the initial connection check only.
+
+## Mobile space key and workspace growth
+
+On the previous build, an emulated phone sequence that sent a space keypress and then inserted a space after keyup produced two spaces in Alpine. The browser regression covers that sequence, space insertion during the keypress, and a separate input-only space. Each intended press now adds one space. The mobile testing used emulated keyboard events.
+
+The previous Git path applied a 64 MiB response cap to pack streams. The fresh workspace also had about 80 MiB available on its 220 MiB filesystem. The fixture now streams real Git HTTP responses and can seed a repository with four incompressible 26 MiB files. Native Git cloned and checked out its pack, which exceeded 104 MiB. The checksums matched across save and reload.
+
+The growth test filled most of a default workspace first. Its Git clone paused at the growth dialog, resumed in place after approval, and verified the files. The workspace then grew beyond 512 MiB and saved and restored the larger checkout and filler file. Choosing **Keep limit** canceled the clone and preserved the existing files. A separate test of the Cloudflare preview reached the allowance with local terminal writes, approved growth, and wrote more data in the same shell.
+
+The scratch filesystem uses a sparse IndexedDB-backed ext4 disk where available. It begins with an approximately 420 MiB allowance and releases its reserved blocks on approval. The virtual capacity is 1 TiB. Browser quota and the browser's ability to process and store snapshots still apply. Saved checkpoints use the existing workspace storage format.
+
+The production Linux host serves version `291fa722-1a73-41f2-8797-bfa188c57359` at 100%. The private gateway serves version `56b0f5b7-d72c-4516-8dfc-ab9b64b9d617` at 100%. The production HTML matched the staged and committed artifact byte for byte with SHA-256 `9c4bedef3372855fd32ef354a735b76141e5a06269a67296673e03e900effa9f`. On production, local writes opened the growth dialog and approval allowed writes in the same shell. The terminal tests passed mobile space input and the desktop pane workflow. The first shell reached Alpine mirrors, GitHub, and npm without opening the networking settings.
+
+Firefox 157.0 and WebKit 26.5 booted the production Alpine guest and ran a shell command. The Chromium fixture suite passed native Git write operations and pull, regular persistence and snapshots, interruption and browser quota recovery, and IndexedDB fallback. The standalone HTML booted offline with Git, Node.js, npm, and APK and saved and restored a project. The Worker tests streamed a 257 MiB Git pack and confirmed that ordinary responses still stop at 64 MiB.
+
+The intermediate release confirmed a production GitHub clone and checkout of curl with a 133,798,865-byte pack. The rollback versions for the growth release are Linux host `7e5de842-874d-4919-8486-e454ab30d1ac` and private gateway `52cc1465-487d-4f9c-9be4-ec8b23708734`. Export any workspace above the intermediate release's snapshot limits before rolling back.
+
+```sh
+LARGE_GIT_FIXTURE=1 BROWSER_TEST_PORT=18735 node test/fixture.mjs
+# Run in another shell
+node test/large-git.mjs
+WORKSTATION_TEST_GROWTH=1 node test/large-git.mjs
+WORKSTATION_TEST_GROWTH=cancel node test/large-git.mjs
+```

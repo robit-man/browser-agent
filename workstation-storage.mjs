@@ -1,6 +1,6 @@
 const MiB = 1024 * 1024;
-const maxArchive = 128 * MiB;
-const maxFilesystem = 196 * MiB;
+const maxArchive = 320 * MiB;
+const maxFilesystem = 384 * MiB;
 const format = 'pointblank-linux-filesystem';
 const compatibility = 'alpine-3.24-aarch64-python3.13-rootfs-v1';
 const encoder = new TextEncoder();
@@ -160,10 +160,15 @@ function tarNumber(bytes) {
   return value ? Number.parseInt(value, 8) : 0;
 }
 
-async function validateTar(blob, secrets = []) {
+async function validateTar(blob, secrets = [], allowPrompt = false) {
   const reader = blob.stream().pipeThrough(new DecompressionStream('gzip')).getReader();
   let chunk = new Uint8Array();
   let offset = 0, total = 0;
+  async function checkExpandedSize(size) {
+    if (size <= maxFilesystem || growthAllowed) return;
+    if (allowPrompt && await requestWorkspaceGrowth('This snapshot expands beyond the default workspace allowance.')) return;
+    throw Error('Expanded snapshot exceeds ' + maxFilesystem / MiB + ' MiB');
+  }
   async function take(size, consume = () => {}) {
     while (size > 0) {
       if (offset === chunk.length) {
@@ -172,7 +177,7 @@ async function validateTar(blob, secrets = []) {
         chunk = item.value;
         offset = 0;
         total += chunk.length;
-        if (total > maxFilesystem) throw Error('Expanded snapshot exceeds 196 MiB');
+        if (total > maxFilesystem && !growthAllowed) await checkExpandedSize(total);
       }
       const length = Math.min(size, chunk.length - offset);
       consume(chunk.subarray(offset, offset + length));
@@ -199,7 +204,8 @@ async function validateTar(blob, secrets = []) {
           const item = await reader.read();
           if (item.done) break;
           total += item.value.length;
-          if (total > maxFilesystem || item.value.some(Boolean)) throw Error('Data after tar archive');
+          if (item.value.some(Boolean)) throw Error('Data after tar archive');
+          if (total > maxFilesystem && !growthAllowed) await checkExpandedSize(total);
         }
         break;
       }
@@ -207,7 +213,8 @@ async function validateTar(blob, secrets = []) {
       if (checksum !== tarNumber(header.subarray(148, 156))) throw Error('Tar header checksum failed');
       const size = tarNumber(header.subarray(124, 136));
       const type = String.fromCharCode(header[156] || 48);
-      if (size > maxFilesystem || paths.size > 150000) throw Error('Snapshot exceeds filesystem limits');
+      if (size > maxFilesystem && !growthAllowed) await checkExpandedSize(size);
+      if (paths.size > 150000) throw Error('Snapshot exceeds filesystem limits');
       if (type === 'L' || type === 'K') {
         if (size > 4096 || (type === 'L' ? longName : longLink)) throw Error('Invalid long tar path');
         const value = tarString(await bytes(size));
@@ -269,7 +276,11 @@ function packageSnapshot(metadata, tar) {
 }
 
 async function readSnapshot(file, { portable = false, headerOnly = false } = {}) {
-  if (!(file instanceof Blob) || file.size < 9 || file.size > maxArchive + 8192) throw Error('Invalid snapshot size');
+  if (!(file instanceof Blob) || file.size < 9) throw Error('Invalid snapshot size');
+  if (file.size > maxArchive + 8192 && !growthAllowed &&
+      !(portable && await requestWorkspaceGrowth('This snapshot exceeds the default workspace allowance.'))) {
+    throw Error('Snapshot exceeds the default storage allowance');
+  }
   const prefix = new Uint8Array(await file.slice(0, 8).arrayBuffer());
   const length = new DataView(prefix.buffer).getUint32(4);
   if (decoder.decode(prefix.subarray(0, 4)) !== 'PBL1' || length < 2 || length > 8192 || 8 + length > file.size) {
@@ -292,11 +303,11 @@ async function readSnapshot(file, { portable = false, headerOnly = false } = {})
     throw Error('Invalid snapshot metadata');
   }
   if (metadata.reset === true && generation && !portable && !tar.size) return { metadata, tar };
-  if (!tar.size || tar.size > maxArchive || tar.size !== metadata.bytes || !/^[a-f0-9]{64}$/.test(metadata.sha256)) {
+  if (!tar.size || (!growthAllowed && tar.size > maxArchive) || tar.size !== metadata.bytes || !/^[a-f0-9]{64}$/.test(metadata.sha256)) {
     throw Error('Invalid snapshot contents');
   }
   if (!headerOnly && await digest(tar) !== metadata.sha256) throw Error('Snapshot integrity check failed');
-  if (portable) await validateTar(tar);
+  if (portable) await validateTar(tar, [], true);
   return { metadata, tar };
 }
 

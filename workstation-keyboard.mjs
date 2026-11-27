@@ -315,12 +315,24 @@ function wireTerminalDictation(session, send) {
   const on = (type, handler) => element.addEventListener(type, event => {
     if (event.target === field) handler(event);
   }, true);
-  let sent = '', base = null;
+  let sent = '', base = null, spaceKeyTime = null;
+  const repeatsSpace = (event) => spaceKeyTime !== null &&
+    event.timeStamp >= spaceKeyTime && event.timeStamp - spaceKeyTime <= 120;
   const reset = () => {
     sent = '';
     base = null;
+    spaceKeyTime = null;
     field.value = '';
   };
+  session.term.onKey(({ key, domEvent }) => {
+    if (coarsePointer.matches && key === ' ' && !domEvent.isComposing) spaceKeyTime = domEvent.timeStamp;
+  });
+  on('keypress', (event) => {
+    if ((event.key === ' ' || event.charCode === 32) && repeatsSpace(event)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  });
   on('beforeinput', event => {
     base = event.inputType === 'insertText' && !event.isComposing ? field.value : null;
   });
@@ -329,6 +341,15 @@ function wireTerminalDictation(session, send) {
     // Browsers that skip beforeinput leave the field as it was last sent.
     const before = base ?? sent;
     base = null;
+    // Some phone keyboards also emit insertText for a space xterm already sent.
+    const duplicateSpace = event.data === ' ' && repeatsSpace(event) &&
+      (field.value === before || field.value === before + ' ');
+    spaceKeyTime = null;
+    if (duplicateSpace) {
+      field.value = before;
+      event.stopPropagation();
+      return;
+    }
     // A plain insert at the end is xterm's to send. It also knows when a key
     // press already sent the character (Shift+letter), so it never doubles.
     if (before !== sent && before !== '' || field.value === before + (event.data ?? '')) {
@@ -344,7 +365,10 @@ function wireTerminalDictation(session, send) {
     if (edit) send(session, edit);
   });
   // A key press or leaving the terminal ends the dictation run.
-  on('keydown', event => { if (!event.isComposing && event.keyCode !== 229) reset(); });
+  on('keydown', event => {
+    spaceKeyTime = null;
+    if (!event.isComposing && event.keyCode !== 229) reset();
+  });
   field.addEventListener('blur', reset);
 }
 

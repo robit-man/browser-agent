@@ -7,14 +7,15 @@ const env = { PUBLIC_NETWORK_ORIGIN: origin, PUBLIC_CLIENT_LIMIT: unlimited, PUB
 const upstream = [];
 const audit = [];
 
-function request(path, { site = origin, fetchSite = 'same-origin', source, method = 'GET', headers, body, config = env } = {}) {
+function request(path, { site = origin, fetchSite = 'same-origin', source, method = 'GET', headers, body, config = env,
+  upstreamResponse = () => new Response('fixture') } = {}) {
   return handlePublicGateway(new Request(site + publicGatewayPath + path, {
     method, body, headers: {
       'CF-Connecting-IP': '192.0.2.5', 'Sec-Fetch-Site': fetchSite, ...(source ? { Origin: source } : {}), ...headers,
     },
   }), config, async (url, init) => {
     upstream.push({ url, init });
-    return new Response('fixture');
+    return upstreamResponse();
   }, (line) => audit.push(JSON.parse(line)));
 }
 
@@ -52,3 +53,42 @@ assert.equal((await request('/v1/services', {
 assert.equal(upstream.length, 3);
 assert(audit.some(({ event, status }) => event === 'workstation_public_egress' && status === 403));
 console.log('PASS same-origin public registry, Git reads, package reads, denial of writes and credentials, origin checks, and rate limits');
+
+const MiB = 1024 * 1024;
+function streamedResponse(bytes) {
+  const block = new Uint8Array(MiB);
+  return new Response(new ReadableStream({
+    pull(controller) {
+      if (!bytes) { controller.close(); return; }
+      const length = Math.min(bytes, block.length);
+      bytes -= length;
+      controller.enqueue(block.subarray(0, length));
+    },
+  }));
+}
+
+async function count(response) {
+  let bytes = 0;
+  for await (const part of response.body) bytes += part.byteLength;
+  return bytes;
+}
+
+const gitPack = await request('/v1/services/github', {
+  method: 'POST',
+  headers: {
+    'X-Workspace-Path': '/example/project/git-upload-pack',
+    'X-Workspace-Method': 'POST',
+    'X-Workspace-Headers': '{"content-type":"application/x-git-upload-pack-request"}',
+  },
+  body: 'request',
+  upstreamResponse: () => streamedResponse(257 * MiB),
+});
+assert.equal(await count(gitPack), 257 * MiB);
+const npm = await request('/v1/services/npm', {
+  method: 'POST',
+  headers: { 'X-Workspace-Path': '/is-number', 'X-Workspace-Method': 'GET' },
+  upstreamResponse: () => streamedResponse(64 * MiB + 1),
+});
+await assert.rejects(count(npm), /Response exceeds service limit/);
+assert(audit.some(({ responseBytes, reason }) => responseBytes === 64 * MiB + 1 && reason === 'response_limit'));
+console.log('PASS 257 MiB Git pack streams through and ordinary responses retain the 64 MiB cap');

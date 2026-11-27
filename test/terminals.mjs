@@ -228,6 +228,31 @@ try {
   await phone.keyboard.insertText("printf '\\nSOFT_KEY_OK\\n'");
   await keys.getByRole('button', { name: 'Enter', exact: true }).tap();
   await output(phone, 'SOFT_KEY_OK', terminal(2));
+  await phone.keyboard.insertText("printf '<%s>\\n' 'a");
+  const mobileInput = phone.locator(terminal(2) + ' .xterm-helper-textarea');
+  await mobileInput.evaluate((field) => {
+    function spaceKey(type) {
+      field.dispatchEvent(new KeyboardEvent(type, { key: ' ', code: 'Space', keyCode: 32, charCode: 32,
+        bubbles: true, cancelable: true, composed: true }));
+    }
+    function insertSpace() {
+      field.dispatchEvent(new InputEvent('beforeinput', { data: ' ', inputType: 'insertText', bubbles: true }));
+      field.value += ' ';
+      field.dispatchEvent(new InputEvent('input', { data: ' ', inputType: 'insertText', bubbles: true }));
+    }
+    spaceKey('keydown');
+    spaceKey('keypress');
+    insertSpace();
+    spaceKey('keyup');
+    spaceKey('keydown');
+    spaceKey('keypress');
+    spaceKey('keyup');
+    insertSpace();
+    insertSpace();
+  });
+  await phone.keyboard.insertText("b'");
+  await keys.getByRole('button', { name: 'Enter', exact: true }).tap();
+  await output(phone, '<a   b>', terminal(2));
   const touch = await mobile.newCDPSession(phone);
   const word = phone.locator(terminal(2) + ' .xterm-rows').getByText('SOFT_KEY_OK', { exact: true });
   const row = await word.boundingBox();
@@ -244,7 +269,7 @@ try {
     visualViewport.dispatchEvent(new Event('resize'));
   });
   await keys.waitFor({ state: 'hidden' });
-  console.log('PASS touch sidebar and text sizing, emulated keyboard viewport, sticky Ctrl, soft Enter and long-press text selection against Alpine');
+  console.log('PASS touch sidebar and text sizing, keyboard viewport, sticky Ctrl, soft Enter, single spaces and long-press text selection');
 } finally {
   await browser.close();
 }

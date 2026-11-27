@@ -1,3 +1,5 @@
+import { gitPackTimeoutMs, isGitPackDownload } from '../workstation-network-limits.mjs';
+
 const MiB = 1024 * 1024;
 const defaultRequestLimit = 16 * MiB;
 const defaultResponseLimit = 64 * MiB;
@@ -118,13 +120,17 @@ async function boundedBody(request, limit) {
   return body;
 }
 
-function capResponse(body, limit) {
+function capResponse(body, limit, audit) {
   if (!body) return null;
   let size = 0;
   return body.pipeThrough(new TransformStream({
     transform(chunk, controller) {
       size += chunk.byteLength;
-      if (size > limit) throw new RangeError('Response exceeds service limit');
+      if (size > limit) {
+        audit.responseBytes = size;
+        audit.log(502, 'response_limit', true);
+        throw new RangeError('Response exceeds service limit');
+      }
       controller.enqueue(chunk);
     },
   }));
@@ -166,14 +172,18 @@ async function forward(request, env, services, service, audit, upstreamFetch) {
   }
 
   const requestLimit = Math.min(defaultRequestLimit, service.requestBytes ?? defaultRequestLimit);
-  const responseLimit = Math.min(defaultResponseLimit, service.responseBytes ?? defaultResponseLimit);
+  const gitPack = service.id === 'github' && isGitPackDownload(url, method);
+  const ceiling = gitPack ? Infinity : defaultResponseLimit;
+  const responseLimit = Math.min(ceiling, service.responseBytes ?? ceiling);
   let body;
   try {
     if (Number(request.headers.get('Content-Length')) > requestLimit) return audit.reply(413, 'request_limit');
     if (!['GET', 'HEAD'].includes(method)) body = await boundedBody(request, requestLimit);
   } catch { return audit.reply(413, 'request_limit'); }
   audit.requestBytes = body?.byteLength || 0;
-  const timeout = AbortSignal.timeout(Math.min(60000, service.timeoutMs || 30000));
+  const gitConnect = gitPack ? new AbortController() : null;
+  const timer = gitConnect && setTimeout(() => gitConnect.abort(), gitPackTimeoutMs);
+  const timeout = gitConnect?.signal ?? AbortSignal.timeout(Math.min(60000, service.timeoutMs || 30000));
   try {
     const fetchTarget = service.id === 'diagnostics' && env.DIAGNOSTICS ? env.DIAGNOSTICS.fetch.bind(env.DIAGNOSTICS) : upstreamFetch;
     const response = await fetchTarget(url.href, {
@@ -197,9 +207,12 @@ async function forward(request, env, services, service, audit, upstreamFetch) {
     const safe = new Headers({ 'Cache-Control': 'no-store' });
     for (const name of responseHeaders) if (response.headers.has(name)) safe.set(name, response.headers.get(name));
     audit.log(response.status, 'upstream', true);
-    return new Response(capResponse(response.body, responseLimit), { status: response.status, headers: safe });
+    const stream = Number.isFinite(responseLimit) ? capResponse(response.body, responseLimit, audit) : response.body;
+    return new Response(stream, { status: response.status, headers: safe });
   } catch {
     return audit.reply(timeout.aborted ? 504 : 502, timeout.aborted ? 'upstream_timeout' : 'upstream_error');
+  } finally {
+    clearTimeout(timer);
   }
 }
 

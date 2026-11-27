@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { handleGateway } from '../cloudflare/worker.mjs';
@@ -42,7 +42,16 @@ git(remote, 'config', 'http.receivepack', 'true');
 git(dir, 'clone', remote, join(dir, 'editor'));
 const editor = join(dir, 'editor');
 await writeFile(join(editor, 'readme.txt'), 'original\n');
-git(editor, 'add', 'readme.txt');
+const payloads = [];
+if (process.env.LARGE_GIT_FIXTURE === '1') {
+  for (let index = 0; index < 4; index++) {
+    const name = 'payload-' + index + '.bin';
+    const bytes = randomBytes(26 * 1024 * 1024);
+    payloads.push({ name, sha256: createHash('sha256').update(bytes).digest('hex') });
+    await writeFile(join(editor, name), bytes);
+  }
+}
+git(editor, 'add', '.');
 git(editor, ...author, 'commit', '-m', 'Seed');
 git(editor, 'push', 'origin', 'main');
 
@@ -60,12 +69,24 @@ async function upstream(address, init) {
     CONTENT_LENGTH: String(init.body?.byteLength || 0), CONTENT_TYPE: init.headers.get('content-type') || '',
     HTTP_GIT_PROTOCOL: init.headers.get('git-protocol') || '', REMOTE_USER: user,
   }, stdio: ['pipe', 'pipe', 'inherit'] });
+  const stopped = new Promise((resolve) => child.once('close', resolve));
+  const abort = () => child.kill();
+  init.signal?.addEventListener('abort', abort, { once: true });
+  child.once('close', () => init.signal?.removeEventListener('abort', abort));
+  child.stdin.on('error', () => {});
   child.stdin.end(init.body ? Buffer.from(init.body) : undefined);
-  const output = [];
-  for await (const chunk of child.stdout) output.push(chunk);
-  const data = Buffer.concat(output);
-  const separator = data.indexOf('\r\n\r\n');
-  if (separator < 0) return new Response('git http-backend failed\n', { status: 502 });
+  const stdout = child.stdout[Symbol.asyncIterator]();
+  let data = Buffer.alloc(0);
+  let separator = -1;
+  while (separator < 0) {
+    const { value, done } = await stdout.next();
+    if (done || data.length > 65536) {
+      abort();
+      return new Response('git http-backend failed\n', { status: 502 });
+    }
+    data = Buffer.concat([data, value]);
+    separator = data.indexOf('\r\n\r\n');
+  }
   const headers = new Headers();
   let status = 200;
   for (const line of data.subarray(0, separator).toString().split('\r\n')) {
@@ -74,7 +95,16 @@ async function upstream(address, init) {
     if (name.toLowerCase() === 'status') status = Number.parseInt(value, 10);
     else headers.append(name, value);
   }
-  return new Response(data.subarray(separator + 4), { status, headers });
+  async function* body() {
+    try {
+      yield data.subarray(separator + 4);
+      for await (const chunk of { [Symbol.asyncIterator]: () => stdout }) yield chunk;
+      if (await stopped !== 0) throw Error('git http-backend exited before finishing');
+    } finally {
+      if (child.exitCode === null) abort();
+    }
+  }
+  return new Response(Readable.toWeb(Readable.from(body())), { status, headers });
 }
 
 const server = createServer(async (req, res) => {
@@ -86,7 +116,16 @@ const server = createServer(async (req, res) => {
         body: req.method === 'POST' ? Readable.toWeb(req) : undefined, duplex: 'half',
       }), env, upstream, (message) => console.log(message));
       res.writeHead(response.status, Object.fromEntries(response.headers));
-      if (response.body) Readable.fromWeb(response.body).pipe(res); else res.end();
+      if (response.body) {
+        const stream = Readable.fromWeb(response.body);
+        stream.on('error', (error) => res.destroy(error));
+        res.on('close', () => stream.destroy());
+        stream.pipe(res);
+      } else res.end();
+      return;
+    }
+    if (url.pathname === '/test/payloads') {
+      res.end(JSON.stringify(payloads));
       return;
     }
     if (url.pathname === '/test/commit') {
