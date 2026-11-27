@@ -50,10 +50,12 @@ python3 tools/build-workstation.py --split-assets cloudflare/.release-assets
 npx --yes wrangler@4.168.0 deploy --dry-run --config cloudflare/wrangler.toml
 npx --yes wrangler@4.168.0 deploy --config cloudflare/wrangler.toml
 npx --yes wrangler@4.168.0 secret put WORKSTATION_EGRESS_TOKEN --config cloudflare/wrangler.toml
-npx --yes wrangler@4.168.0 deploy --config cloudflare/linux-host.toml
+npx --yes wrangler@4.168.0 versions upload --config cloudflare/linux-host.toml
+# Verify the returned preview and its byte-for-byte hash before routing traffic.
+npx --yes wrangler@4.168.0 versions deploy VERSION_ID@100% --yes --config cloudflare/linux-host.toml
 ```
 
-Production uses the existing `browser-agent` hosting Worker at `https://linux.pointblankllc.com` and a dedicated `pointblank-linux-network` Worker at `https://network.pointblankllc.com`. Preserve the app origin to preserve existing workspaces. The standalone HTML exceeds Cloudflare's 25 MiB per-asset limit. The host build splits the exact bytes into two assets and returns their concatenation as a single HTML response. The browser uses no separate kernel request. The optional `--kernel` argument verifies the pinned WASM when embedding a replacement. [Cloudflare asset limits](https://developers.cloudflare.com/workers/platform/limits/#static-assets)
+Production uses the existing `browser-agent` hosting Worker at `https://linux.pointblankllc.com` and a dedicated `pointblank-linux-network` Worker at `https://network.pointblankllc.com`. Preserve the app origin to preserve existing workspaces. The standalone HTML exceeds Cloudflare's 25 MiB per-asset limit. The host build splits the exact bytes into two assets and returns their concatenation as one fixed-length HTML response. The browser uses no separate kernel request. The optional `--kernel` argument verifies the pinned WASM when embedding a replacement. [Cloudflare asset limits](https://developers.cloudflare.com/workers/platform/limits/#static-assets)
 
 Deploy the same build to a staging host with an isolated egress Worker first. The build's `--gateway` option sets the staging gateway in a separate output HTML. Set staging's `WORKSTATION_ORIGINS` and the diagnostics binding to the staging host. The [release results](test/RESULTS.md) list the tested deployments and commands.
 

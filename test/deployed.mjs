@@ -18,18 +18,45 @@ const checksum = createHash('sha256').update(bin).digest('hex');
 const scriptChecksum = createHash('sha256').update('#!/bin/sh\nprintf "%s\\n" "POINTBLANK_SCRIPT_OK"\n').digest('hex');
 const browser = await chromium.launch({ args: ['--no-sandbox'], executablePath: process.env.CHROMIUM_PATH });
 const viewport = { width: 1500, height: 950 };
+const workerRequests = new Map();
+
+async function rendererRss() {
+  const control = await browser.newBrowserCDPSession();
+  try {
+    const { processInfo } = await control.send('SystemInfo.getProcessInfo');
+    const sizes = await Promise.all(processInfo.filter(({ type }) => type === 'renderer').map(async ({ id }) => {
+      const status = await readFile('/proc/' + id + '/status', 'utf8').catch(() => '');
+      return Number(status.match(/^VmRSS:\s+(\d+)\s+kB/m)?.[1] || 0);
+    }));
+    return Math.round(sizes.reduce((sum, bytes) => sum + bytes, 0) / 1024);
+  } finally { await control.detach(); }
+}
 
 async function load(url, upgraded) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
+  page.on('request', (request) => {
+    const target = new URL(request.url());
+    if (!target.hostname.includes('network') || !target.pathname.startsWith('/v1/')) return;
+    const method = request.method();
+    workerRequests.set(method, (workerRequests.get(method) || 0) + 1);
+  });
   const start = performance.now();
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await (upgraded ? page.locator('#network-settings:enabled').waitFor({timeout: 90000}) :
-    page.locator('#boot').waitFor({state:'detached',timeout:90000}));
+  const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+  assert.equal(response.status(), 200, 'workstation page status');
+  page.on('pageerror', (error) => console.error('Page error', error.message));
+  try {
+    await (upgraded ? page.locator('#network-settings:enabled').waitFor({timeout: 60000}) :
+      page.locator('#boot').waitFor({state:'detached',timeout:60000}));
+  } catch (error) {
+    console.error('Boot diagnostics', await page.title(), await page.locator('#boot, #save-status').allTextContents());
+    throw error;
+  }
   const session = await context.newCDPSession(page);
   const mem = await session.send('Runtime.getHeapUsage');
   console.log(JSON.stringify({ site: url, readyMs: Math.round(performance.now() - start),
-    jsMiB: Math.round(mem.usedSize / 1048576), backingMiB: Math.round(mem.backingStorageSize / 1048576) }));
+    jsMiB: Math.round(mem.usedSize / 1048576), backingMiB: Math.round(mem.backingStorageSize / 1048576),
+    rendererRssMiB: await rendererRss() }));
   return { page, context };
 }
 
@@ -107,8 +134,11 @@ try {
       'git checkout -b ' + branch + ' && echo from-linux > smoke.txt && git add smoke.txt && ' +
       'git -c user.name=Workstation -c user.email=workstation@example.test commit -m "Native Linux change" && ' +
       'git push -u origin ' + branch);
+    const ref = await github('/git/ref/heads/' + branch);
     const remote = await github('/contents/smoke.txt?ref=' + branch);
     assert.equal(Buffer.from(remote.content, 'base64').toString(), 'from-linux\n');
+    assert.match(ref.object.sha, /^[a-f0-9]{40}$/);
+    await guest(page, 'cd /workspace/controlled && test "$(git rev-parse HEAD)" = ' + ref.object.sha);
     const updated = await github('/contents/smoke.txt', 'PUT', {
       branch, sha: remote.sha, message: 'External acceptance test update',
       content: Buffer.from('updated-outside-linux\n').toString('base64'),
@@ -116,11 +146,23 @@ try {
     await guest(page, 'cd /workspace/controlled && git fetch origin && git pull --ff-only && ' +
       'test "$(git rev-parse HEAD)" = ' + updated.commit.sha +
       ' && test "$(cat smoke.txt)" = updated-outside-linux');
-    console.log('PASS authenticated native GitHub commit, push, independent remote verification, external update, fetch and pull');
+    console.log('PASS authenticated native GitHub commit, push, independent remote verification, external update, fetch and pull',
+      JSON.stringify({ branch, pushed: ref.object.sha, pulled: updated.commit.sha }));
   }
   await guest(page, 'network logs && { curl -fsS --max-time 15 ' + fixture +
     '/slow > /tmp/pointblank-cancel & request=$!; sleep 0.3; network off && ! wait "$request"; } && ! curl -fsS ' + fixture + '/json');
   console.log('PASS native diagnostic commands and session disable');
+  console.log('Browser gateway requests', JSON.stringify(Object.fromEntries(workerRequests)));
+  if (process.env.WORKSTATION_VERIFY_SAVE === '1') {
+    await guest(page, 'echo durable > /root/production-smoke');
+    await page.locator('#save-state').click();
+    await page.waitForFunction(() => document.querySelector('#save-status').textContent.startsWith('Saved '), null, { timeout: 60000 });
+    await page.reload();
+    await page.locator('#save-state:enabled').waitFor({ timeout: 90000 });
+    assert.equal(await page.locator('#network-settings').innerText(), 'NETWORK: OFFLINE');
+    await guest(page, 'test "$(cat /root/production-smoke)" = durable && apk info -e curl git wget && test -f /workspace/public/.git/HEAD');
+    console.log('PASS deployed workspace saves and restores with networking offline');
+  }
 } finally {
   await browser.close();
 }

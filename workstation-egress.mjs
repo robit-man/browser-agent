@@ -282,7 +282,7 @@ function newEgress() {
     async enable(token, repo, username, gitToken) {
       if (token.length < 24 || token.length > 256) throw Error('Enter the workstation egress key');
       if (gitToken && (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !/^[a-zA-Z0-9-]{1,39}$/.test(username) ||
-          !/^(?:github_pat_[a-zA-Z0-9_]+|ghs_[a-zA-Z0-9]+)$/.test(gitToken))) {
+          gitToken.length > 2048 || !/^(?:github_pat_[a-zA-Z0-9_]+|ghs_[a-zA-Z0-9_.-]+)$/.test(gitToken))) {
         throw Error('Enter the GitHub repository, username, and a fine-grained or installation token');
       }
       if (!isSecureContext || !['https:', 'http:'].includes(location.protocol)) throw Error('Open the workstation from its HTTPS origin');

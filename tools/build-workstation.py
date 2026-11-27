@@ -104,6 +104,7 @@ def main():
         assets = args.split_assets
         assets.mkdir(parents=True, exist_ok=True)
         data = html.encode()
+        (assets / "index-length.txt").write_text(str(len(data)))
         offset = len(data) // 2
         for index, part in enumerate((data[:offset], data[offset:]), 1):
             (assets / f"index-part-{index}.bin").write_bytes(part)

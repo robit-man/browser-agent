@@ -144,7 +144,7 @@ async function forward(request, env, services, service, audit, upstreamFetch) {
     const auth = request.headers.get('X-Workspace-Git-Auth');
     if (git.write && !auth) return audit.reply(401, 'git_credential_required');
     if (auth) {
-      if (!/^Basic [A-Za-z0-9+/]{4,1024}={0,2}$/.test(auth)) return audit.reply(400, 'invalid_git_credential');
+      if (!/^Basic [A-Za-z0-9+/]{4,4096}={0,2}$/.test(auth)) return audit.reply(400, 'invalid_git_credential');
       headers.set('Authorization', auth);
     }
     if (method === 'POST') {

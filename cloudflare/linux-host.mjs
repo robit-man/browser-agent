@@ -1,4 +1,4 @@
-const cache = { 'Cache-Control': 'public, max-age=0, must-revalidate' };
+const cache = { 'Cache-Control': 'public, max-age=0, must-revalidate, no-transform' };
 const prefix = '/network-fixtures/';
 const script = '#!/bin/sh\nprintf "%s\\n" "POINTBLANK_SCRIPT_OK"\n';
 
@@ -24,21 +24,31 @@ function diagnostics(path, request) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url);
     if (url.pathname.startsWith(prefix)) return diagnostics(url.pathname.slice(prefix.length), request);
     if (url.pathname !== '/' && url.pathname !== '/index.html') return new Response('Not found', { status: 404 });
     if (request.method === 'HEAD') return new Response(null, { headers: { ...cache, 'Content-Type': 'text/html; charset=utf-8' } });
     if (request.method !== 'GET') return new Response(null, { status: 405 });
     const chunk = (name) => env.ASSETS.fetch(new Request(new URL('/' + name, url)));
-    const parts = await Promise.all([chunk('index-part-1.bin'), chunk('index-part-2.bin')]);
-    if (parts.some((part) => !part.ok)) return new Response('Release assets are unavailable', { status: 503 });
-    const { readable, writable } = new TransformStream();
+    const [lengthFile, first, second] = await Promise.all([
+      chunk('index-length.txt'), chunk('index-part-1.bin'), chunk('index-part-2.bin'),
+    ]);
+    const parts = [first, second];
+    if (!lengthFile.ok || parts.some((part) => !part.ok)) {
+      return new Response('Release assets are unavailable', { status: 503 });
+    }
+    const size = Number(await lengthFile.text());
+    if (!Number.isSafeInteger(size) || size < 1) return new Response('Invalid release asset length', { status: 503 });
+    const { readable, writable } = new FixedLengthStream(size);
     const append = async () => {
       for (const part of parts) await part.body.pipeTo(writable, { preventClose: true });
       await writable.close();
     };
-    void append().catch(() => writable.abort().catch(() => {}));
-    return new Response(readable, { headers: { ...cache, 'Content-Type': 'text/html; charset=utf-8' } });
+    context.waitUntil(append().catch((error) => writable.abort(error).catch(() => {})));
+    return new Response(readable, {
+      headers: { ...cache, 'Content-Type': 'text/html; charset=utf-8', 'Content-Encoding': 'identity' },
+      encodeBody: 'manual',
+    });
   },
 };

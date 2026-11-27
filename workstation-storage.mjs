@@ -137,7 +137,7 @@ const skipped = [
 
 const credentialsPath = /(?:^|\/)(?:\.ssh|\.gnupg|\.git-credentials|\.netrc|\.authinfo(?:\.gpg)?|\.npmrc|\.pypirc|\.curlrc|\.wgetrc|\.bash_history|\.ash_history|\.aws|\.azure|\.kube|\.password-store)(?:\/|$)|(?:^|\/)\.config\/(?:gh|gcloud|git\/credentials)(?:\/|$)|(?:^|\/)\.docker\/config\.json(?:\/|$)/;
 const runtimePath = /^(?:proc|sys|dev|run|tmp|var\/(?:run|log)|etc\/(?:resolv\.conf|ssl\/certs\/workstation-proxy\.pem)|usr\/local\/(?:libexec\/browser-agent|bin\/(?:agent|network)))(?:\/|$)/;
-const credentialText = /(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{16,})/;
+const credentialText = /(?:gh[pour]_[A-Za-z0-9]{30,}|ghs_[A-Za-z0-9_.-]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{16,})/;
 const gitSecret = /(?:^|[\r\n])\s*(?:extraheader\s*=\s*authorization\s*:|password\s*=)|https?:\/\/[^\s\x00/@:]+:[^\s\x00/@]+@/i;
 
 function tarPath(value) {
