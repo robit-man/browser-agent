@@ -234,3 +234,13 @@ In the regression, the previous production build printed `<a  b>` for the single
 Run `node test/mobile-input.mjs` after starting `test/fixture.mjs`. Set `WORKSTATION_TEST_ENGINE=webkit` to run with WebKit or `WORKSTATION_TEST_ORIGIN` to target a deployed build.
 
 The production host serves version `4f7da3d2-3ef0-40e2-919a-6362e8d5b906` at 100%. The production HTML matched the tested preview and rebuilt standalone file with SHA-256 `343f36b5345cdbdc140716b453f4478df4b3d589b12e5baa1917043aab63a496`. The rollback host version is `291fa722-1a73-41f2-8797-bfa188c57359`.
+
+## Preloaded APT
+
+The Alpine starter image includes APT 3.2.1 and dpkg 1.23.7 from signed Alpine 3.24 aarch64 packages. Debian repository lists start empty. The refreshed development layer is 39,058,995 bytes with SHA-256 `128b9878c840925e715c9bb9f74d5aca02292b17698bd071109755d8a55b73cf`. The standalone HTML is 86,103,183 bytes.
+
+The offline Chromium test built a local `.deb`, installed it with `apt install`, verified the dpkg record and installed file, and recovered them after save and reload. The test also verified that APT authentication files were excluded. Snapshot validation accepted the exact signed GnuTLS library, rejected a same-size modified copy, and rejected an archive containing an APT authentication file. A Chromium guest on the previous production release also installed APT through `apk add --no-cache apt`.
+
+The Chromium development tools suite passed on the Cloudflare preview. Host version `b64cdfdf-4229-486e-9e16-2bdbc3042622` serves production at 100%. The production HTML matched the preview and standalone file byte for byte with SHA-256 `1fd3b44589a7ca514bf389f31e4540f0158f953be233f9640c8d265a9b0da8e7`. The rollback host version is `4f7da3d2-3ef0-40e2-919a-6362e8d5b906`.
+
+Production Chromium passed the same local package and persistence tests, plus native `apk add`, HTTPS Git clone, and `npm install`. The production WebKit iPhone-emulation input suite also passed.

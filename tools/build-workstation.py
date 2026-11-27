@@ -20,8 +20,8 @@ ASSET_BYTES = 24 * 1024 * 1024
 DEVELOPMENT_NOTICE = """## Alpine development tools
 
 The default Alpine image includes Git and its templates (GPL-2.0-only),
-Node.js (MIT), npm (Artistic-2.0), and their dependencies from the signed
-Alpine 3.24 aarch64 repositories. Run `apk list --installed` to see the
+Node.js (MIT), npm (Artistic-2.0), APT (GPL-2.0-or-later), and their dependencies
+from the signed Alpine 3.24 aarch64 repositories. Run `apk list --installed` to see the
 bundled versions, package origins, and licenses. Alpine publishes build
 recipes, patches, and corresponding source locations in aports.
 https://gitlab.alpinelinux.org/alpine/aports/-/tree/3.24-stable
@@ -190,10 +190,15 @@ def main():
         data["payloads"][key] = base64.b64encode(gzip.compress(kernel, mtime=0)).decode()
     if args.development_layer:
         embed_development_image(data, args.development_layer.read_bytes())
-        if "## Alpine development tools\n" not in html:
-            marker = "The Alpine workspace includes the signed GNU Bash"
+        heading = "## Alpine development tools\n"
+        marker = "The Alpine workspace includes the signed GNU Bash"
+        if heading in html:
+            start = html.index(heading)
+            end = html.index(marker, start)
+            html = html[:start] + DEVELOPMENT_NOTICE + html[end:]
+        else:
             html = replace_once(html, marker, DEVELOPMENT_NOTICE + marker)
-            match = DATA.search(html)
+        match = DATA.search(html)
     if args.workspace_disk:
         data["payloads"]["pointblank-workspace-disk"] = base64.b64encode(args.workspace_disk.read_bytes()).decode()
     if linked or args.offline or args.kernel or args.development_layer or args.workspace_disk:

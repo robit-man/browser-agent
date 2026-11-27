@@ -57,6 +57,8 @@ The bundled unkernel exposes `KernelInstance.snapshot()` and `createKernel({ res
 
 [linux.pointblankllc.com](https://linux.pointblankllc.com/) connects to public networking before opening a fresh or ordinary saved shell. Use native Git for public GitHub repositories and use APK and npm for approved package sources. Install curl with `apk add curl` when needed.
 
+New workspaces include Git, Node.js, npm, and Alpine's native build of `apt` with `dpkg`. Use `apt install /path/to/package.deb` for local Debian packages compatible with the guest. Use `apk add` for Alpine system packages. Debian repositories are unconfigured by default. Existing workspaces can add APT with `apk add apt`.
+
 The default workspace allowance is about 420 MiB, including the Alpine starter filesystem. Git clone and fetch pause for approval before a pack uses the remaining allowance or reaches 256 MiB. A dialog also appears when local writes leave less than 16 MiB available. If a local command has already hit its filesystem limit, retry it after approving. **Storage and autosave → Allow workspace growth** opens the same dialog.
 
 Approval lifts the app's byte allowances and persists for this browser. The browser-backed ext4 disk is sparse and allocates space as written, up to browser quota and the 1 TiB virtual disk capacity. Browsers without a writable workspace disk use a RAM-backed filesystem and remain subject to guest RAM. The Git pack and checked-out files both count toward workspace use.

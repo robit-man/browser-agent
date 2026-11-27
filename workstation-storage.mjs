@@ -129,16 +129,23 @@ function acquireWorkspace() {
 const skipped = [
   './proc', './sys', './dev', './run', './tmp', './var/run', './var/log', './etc/resolv.conf',
   './etc/ssl/certs/workstation-proxy.pem', './usr/local/libexec/browser-agent', './usr/local/bin/agent', './usr/local/bin/network',
+  './etc/apt/auth.conf', './etc/apt/auth.conf.d',
   '*/.ssh', '*/.gnupg', '*/.git-credentials', '*/.netrc', '*/.authinfo', '*/.authinfo.gpg',
   '*/.npmrc', '*/.pypirc', '*/.curlrc', '*/.wgetrc', '*/.bash_history', '*/.ash_history',
   '*/.config/gh', '*/.config/git/credentials', '*/.config/gcloud', '*/.aws', '*/.azure',
   '*/.docker/config.json', '*/.kube', '*/.password-store',
 ];
 
-const credentialsPath = /(?:^|\/)(?:\.ssh|\.gnupg|\.git-credentials|\.netrc|\.authinfo(?:\.gpg)?|\.npmrc|\.pypirc|\.curlrc|\.wgetrc|\.bash_history|\.ash_history|\.aws|\.azure|\.kube|\.password-store)(?:\/|$)|(?:^|\/)\.config\/(?:gh|gcloud|git\/credentials)(?:\/|$)|(?:^|\/)\.docker\/config\.json(?:\/|$)/;
+const credentialsPath = /(?:^|\/)(?:\.ssh|\.gnupg|\.git-credentials|\.netrc|\.authinfo(?:\.gpg)?|\.npmrc|\.pypirc|\.curlrc|\.wgetrc|\.bash_history|\.ash_history|\.aws|\.azure|\.kube|\.password-store)(?:\/|$)|(?:^|\/)\.config\/(?:gh|gcloud|git\/credentials)(?:\/|$)|(?:^|\/)\.docker\/config\.json(?:\/|$)|^etc\/apt\/(?:auth\.conf|auth\.conf\.d)(?:\/|$)/;
 const runtimePath = /^(?:proc|sys|dev|run|tmp|var\/(?:run|log)|etc\/(?:resolv\.conf|ssl\/certs\/workstation-proxy\.pem)|usr\/local\/(?:libexec\/browser-agent|bin\/(?:agent|network)))(?:\/|$)/;
 const credentialText = /(?:gh[pour]_[A-Za-z0-9]{30,}|ghs_[A-Za-z0-9_.-]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----\r?\n[A-Za-z0-9+/=]{16,})/;
 const gitSecret = /(?:^|[\r\n])\s*(?:extraheader\s*=\s*authorization\s*:|password\s*=)|https?:\/\/[^\s\x00/@:]+:[^\s\x00/@]+@/i;
+// Alpine's signed GnuTLS 3.8.14 aarch64 library embeds public self-test keys.
+const gnutlsFixture = {
+  path: 'usr/lib/libgnutls.so.30.43.0',
+  size: 2109376,
+  sha256: '7ae6940f675b5419d3bd6f7e73868ea4c97bbe9911f6a3df9b00b85cbb91b7bf',
+};
 
 function tarPath(value) {
   const path = value.replace(/^\.\//, '').replace(/\/$/, '');
@@ -239,7 +246,14 @@ async function validateTar(blob, secrets = [], allowPrompt = false) {
         }
         if (type === '1' && paths.get(tarPath(link)) !== '0') throw Error('Invalid tar hard link');
         paths.set(path, type);
-        if (type === '0') {
+        if (type === '0' && path === gnutlsFixture.path && size === gnutlsFixture.size) {
+          const contents = await bytes(size);
+          const text = decoder.decode(contents);
+          if (secrets.some((secret) => text.includes(secret)) ||
+              (credentialText.test(text) && await digest(new Blob([contents])) !== gnutlsFixture.sha256)) {
+            throw Error('Remove the credential from ' + path + ' before saving');
+          }
+        } else if (type === '0') {
           let tail = '';
           const isGitConfig = /(?:^|\/)(?:\.gitconfig|\.git\/config(?:\.worktree)?)$/.test(path);
           await take(size, (part) => {

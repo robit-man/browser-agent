@@ -35,14 +35,25 @@ try {
     return rows.innerText();
   }
 
-  const versions = await guest('apk info -e git git-init-template nodejs npm && git --version && node --version && npm --version && apk --version');
+  const versions = await guest('apk info -e git git-init-template nodejs npm apt dpkg && ' +
+    'git --version && node --version && npm --version && apk --version && apt --version');
   for (const line of versions.split('\n').map((value) => value.trim())) {
-    if (/^(git version |v\d+\.\d+\.\d+$|\d+\.\d+\.\d+$|apk-tools )/.test(line)) console.log(line);
+    if (/^(git version |v\d+\.\d+\.\d+$|\d+\.\d+\.\d+$|apk-tools |apt \d)/.test(line)) console.log(line);
   }
   await guest('mkdir /workspace/preloaded && cd /workspace/preloaded && git init -b main && npm init -y && ' +
     'npm pkg set scripts.test="node --check index.js" && printf "%s\\n" "console.log(42)" > index.js && npm test && ' +
     'git add index.js package.json && git -c user.name=Smoke -c user.email=smoke@example.test commit -m "Initial project"');
-  console.log('PASS fresh Alpine starts with native Git, Node, npm, and APK and can create a project without package setup');
+  console.log('PASS fresh Alpine starts with native Git, Node, npm, APK, and APT');
+
+  await guest("grep -q '^_apt:' /etc/passwd && cd /workspace && " +
+    'mkdir -p apt-smoke/DEBIAN apt-smoke/usr/share/pointblank-apt-smoke && ' +
+    "printf '%s\\n' 'Package: pointblank-apt-smoke' 'Version: 1.0' 'Architecture: all' " +
+    "'Maintainer: Pointblank <smoke@example.test>' 'Description: Local package smoke test' > apt-smoke/DEBIAN/control && " +
+    "printf '%s\\n' APT_SMOKE_OK > apt-smoke/usr/share/pointblank-apt-smoke/status && " +
+    'dpkg-deb --root-owner-group -Zgzip --build apt-smoke apt-smoke.deb && ' +
+    'apt install -y ./apt-smoke.deb && dpkg-query -W pointblank-apt-smoke && ' +
+    'grep -qx APT_SMOKE_OK /usr/share/pointblank-apt-smoke/status');
+  console.log('PASS APT installed a local .deb and dpkg registered it');
 
   if (publicNetwork) {
     await page.getByRole('button', { name: 'NETWORK: ONLINE', exact: true }).waitFor({ timeout: 30000 });
@@ -53,6 +64,7 @@ try {
     console.log('PASS native APK install, public HTTPS Git clone, and npm install and import on production');
   }
 
+  await guest("printf '%s\\n' 'machine example.test login fixture password fixture' > /etc/apt/auth.conf.d/smoke.conf");
   await page.locator('#workspace-settings').click();
   await page.locator('#save-state').click();
   await page.waitForFunction(() => {
@@ -62,8 +74,10 @@ try {
   assert.match(await page.locator('#save-status').textContent(), /^Saved /);
   await page.reload({ timeout: 90000 });
   await ready();
-  await guest('cd /workspace/preloaded && test "$(git log -1 --format=%s)" = "Initial project" && npm test');
-  console.log('PASS workspace with preinstalled tools saves and restores across reload');
+  await guest('cd /workspace/preloaded && test "$(git log -1 --format=%s)" = "Initial project" && npm test && ' +
+    'dpkg-query -W pointblank-apt-smoke && grep -qx APT_SMOKE_OK /usr/share/pointblank-apt-smoke/status && ' +
+    'test ! -e /etc/apt/auth.conf.d/smoke.conf');
+  console.log('PASS Git project and installed .deb survive reload and APT credentials are excluded');
 } finally {
   await browser.close();
 }

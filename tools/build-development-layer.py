@@ -13,7 +13,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON_IMAGE = "/oci/registry-1.docker.io_library_python_3.13-alpine/"
 BUILD_IMAGE = "alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf"
-PACKAGES = ("git", "git-init-template", "nodejs", "npm")
+PACKAGES = ("git", "git-init-template", "nodejs", "npm", "apt")
 INSTALL = """
 mkdir /target
 for layer in /input/base-*.tar.gz; do
@@ -23,7 +23,13 @@ tar -czf /input/before.tar.gz -C /target .
 # Run the native apk solver for the guest architecture. Keep package names
 # in the world file so normal apk upgrades inside Alpine remain available.
 apk --root /target --arch aarch64 --no-scripts --no-cache add "$@"
-apk --root /target list --installed git git-init-template nodejs npm
+apk --root /target list --installed "$@"
+# Recreate APT's pre-install sandbox account with host tools. Guest package
+# scripts are disabled because the build container may have a different CPU.
+apk --no-cache add shadow >/dev/null
+groupadd --prefix /target --system _apt
+useradd --prefix /target --system --no-create-home --home-dir /var/lib/apt \\
+    --shell /sbin/nologin --gid _apt --comment "APT sandbox user" _apt
 tar -czf /input/after.tar.gz -C /target .
 """
 
