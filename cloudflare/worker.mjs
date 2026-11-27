@@ -5,6 +5,14 @@ const requestHeaders = ['accept', 'content-type', 'git-protocol', 'if-modified-s
 const responseHeaders = ['accept-ranges', 'content-encoding', 'content-range', 'content-type', 'etag', 'last-modified', 'location'];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+export const publicGatewayPath = '/api/workstation/public';
+const publicServices = [
+  { id: 'github', origin: 'https://github.com', publicGit: true, requestBytes: 2 * MiB },
+  { id: 'npm', origin: 'https://registry.npmjs.org', paths: ['/'], methods: ['GET', 'HEAD'] },
+  { id: 'alpine', origin: 'https://dl-cdn.alpinelinux.org', paths: ['/alpine/v3.24/main', '/alpine/v3.24/community'], methods: ['GET', 'HEAD'] },
+  { id: 'pypi', origin: 'https://pypi.org', paths: ['/simple'], methods: ['GET', 'HEAD'] },
+  { id: 'pypi-files', origin: 'https://files.pythonhosted.org', paths: ['/packages'], methods: ['GET', 'HEAD'] },
+];
 
 function bytes64(bytes) {
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
@@ -77,9 +85,11 @@ function approved(service, url, method) {
   if (!service || url.origin !== service.origin || url.protocol !== 'https:' ||
       url.username || url.password || url.port || url.hash ||
       /[%\\\x00-\x20]/.test(path) || /(?:^|\/)\.\.?(?:\/|$)/.test(path) || path.includes('//')) return false;
-  if (service.repositories) {
+  if (service.publicGit || service.repositories) {
     const git = gitOperation(url, method);
-    if (!git || git.invalid || !Object.hasOwn(service.repositories, git.repo)) return false;
+    if (!git || git.invalid) return false;
+    if (service.publicGit) return !git.write;
+    if (!Object.hasOwn(service.repositories, git.repo)) return false;
     return service.repositories[git.repo] === 'write' || (service.repositories[git.repo] === 'read' && !git.write);
   }
   return service.methods.includes(method) &&
@@ -138,7 +148,7 @@ async function forward(request, env, services, service, audit, upstreamFetch) {
     const forwarded = JSON.parse(request.headers.get('X-Workspace-Headers') || '{}');
     for (const name of requestHeaders) if (typeof forwarded[name] === 'string') headers.set(name, forwarded[name]);
   } catch { return audit.reply(400, 'invalid_headers'); }
-  if (service.repositories) {
+  if (service.publicGit || service.repositories) {
     const git = gitOperation(url, method);
     audit.repository = git.repo;
     const auth = request.headers.get('X-Workspace-Git-Auth');
@@ -193,19 +203,15 @@ async function forward(request, env, services, service, audit, upstreamFetch) {
   }
 }
 
-export async function handleGateway(request, env, upstreamFetch = fetch, writeLog = console.log) {
-  const { pathname } = new URL(request.url);
-  const origin = request.headers.get('Origin') ||
-    (request.headers.get('Sec-Fetch-Site') === 'same-origin' ? new URL(request.url).origin : null);
-  const allowedOrigins = (env.WORKSTATION_ORIGINS || env.WORKSTATION_ORIGIN || '').split(',').map((part) => part.trim());
-  const allowed = !!origin && allowedOrigins.includes(origin);
+function auditRequest(writeLog, event) {
   const requestId = crypto.randomUUID();
   const started = Date.now();
-  const audit = {
+  return {
+    requestId,
     log(status, reason, authorized = false) {
       const { session, resource, destination, method, repository, requestBytes, responseBytes } = this;
       writeLog(JSON.stringify({
-        event: 'workstation_egress', requestId, timestamp: new Date(started).toISOString(), session, resource,
+        event, requestId, timestamp: new Date(started).toISOString(), session, resource,
         destination, method, repository, status, requestBytes, responseBytes, durationMs: Date.now() - started, authorized, reason,
       }));
     },
@@ -214,9 +220,56 @@ export async function handleGateway(request, env, upstreamFetch = fetch, writeLo
       return json(status, { error: reason });
     },
   };
+}
+
+export async function handlePublicGateway(request, env, upstreamFetch = fetch, writeLog = console.log) {
+  const url = new URL(request.url);
+  const publicOrigin = env.PUBLIC_NETWORK_ORIGIN;
+  const audit = auditRequest(writeLog, 'workstation_public_egress');
   const respond = (response) => {
     const headers = new Headers(response.headers);
-    headers.set('X-Request-ID', requestId);
+    headers.set('X-Request-ID', audit.requestId);
+    headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+    return new Response(response.body, { status: response.status, headers });
+  };
+  const origin = request.headers.get('Origin');
+  if (url.origin !== publicOrigin || !url.pathname.startsWith(publicGatewayPath + '/') ||
+      url.search || (origin && origin !== publicOrigin) ||
+      request.headers.get('Sec-Fetch-Site') !== 'same-origin') {
+    return respond(audit.reply(403, 'origin_denied'));
+  }
+  if (request.headers.has('Authorization') || request.headers.has('X-Workspace-Git-Auth') ||
+      request.headers.has('X-Workspace-Key')) {
+    return respond(audit.reply(403, 'credentials_not_accepted'));
+  }
+  const client = request.headers.get('CF-Connecting-IP');
+  if (!client || !env.PUBLIC_CLIENT_LIMIT || !env.PUBLIC_REQUEST_LIMIT) {
+    return respond(audit.reply(503, 'rate_limit_unavailable'));
+  }
+  if (!(await env.PUBLIC_CLIENT_LIMIT.limit({ key: client })).success ||
+      !(await env.PUBLIC_REQUEST_LIMIT.limit({ key: 'public' })).success) {
+    return respond(audit.reply(429, 'request_rate_limit'));
+  }
+  const path = url.pathname.slice(publicGatewayPath.length);
+  if (path === '/v1/services' && request.method === 'GET') {
+    return respond(json(200, publicServices.map(({ id, origin }) => ({ id, origin }))));
+  }
+  const match = /^\/v1\/services\/([a-z0-9-]+)$/.exec(path);
+  const service = match && publicServices.find(({ id }) => id === match[1]);
+  if (!service || request.method !== 'POST') return respond(audit.reply(404, 'service_unavailable'));
+  return respond(await forward(request, env, publicServices, service, audit, upstreamFetch));
+}
+
+export async function handleGateway(request, env, upstreamFetch = fetch, writeLog = console.log) {
+  const { pathname } = new URL(request.url);
+  const origin = request.headers.get('Origin') ||
+    (request.headers.get('Sec-Fetch-Site') === 'same-origin' ? new URL(request.url).origin : null);
+  const allowedOrigins = (env.WORKSTATION_ORIGINS || env.WORKSTATION_ORIGIN || '').split(',').map((part) => part.trim());
+  const allowed = !!origin && allowedOrigins.includes(origin);
+  const audit = auditRequest(writeLog, 'workstation_egress');
+  const respond = (response) => {
+    const headers = new Headers(response.headers);
+    headers.set('X-Request-ID', audit.requestId);
     headers.set('Vary', 'Origin');
     if (allowed) {
       headers.set('Access-Control-Allow-Origin', origin);

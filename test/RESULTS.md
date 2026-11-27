@@ -97,3 +97,11 @@ To restore the previous Linux HTML, deploy the rollback version at 100% using th
 ```sh
 npx --yes wrangler@4.168.0 versions deploy a2fe5ef1-88b6-4e5a-bb81-10307375b987@100% --yes --config cloudflare/linux-host.toml
 ```
+
+## Automatic public networking
+
+Linux host version `207124c8-c10f-4779-8c09-47e0ae9563ce` was deployed at 100% on `https://linux.pointblankllc.com`. The live single-file HTML matched SHA-256 `af6e531eab6d2cc0c5f0e778899190582c87c12aba26d71cd29d337bc9e6481c`. The prior host version `b55f2a72-bf92-44d8-b09f-c663eacdbd08` is the rollback for this change.
+
+A clean Chromium profile reached `NETWORK: ONLINE` without submitting credentials. Native guest tests installed Alpine packages, cloned a public GitHub repository, fetched npm metadata via curl, installed `is-number@7.0.0` with npm, and loaded it from Node. An unapproved hostname and Git receive-pack were blocked. Cross-origin requests and a request to the Worker preview hostname returned HTTP 403.
+
+Offline preference survived reload. The guest's `network on` resumed public access. An imported filesystem snapshot waited for explicit enablement. The live network dialog still switched to the authenticated gateway and exposed its private service registry. Run `node test/public-gateway.mjs` for the public policy regression checks.

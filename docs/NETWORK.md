@@ -28,6 +28,14 @@ Cross-origin authenticated endpoints require the exact configured app origin. Pr
 
 Requests are capped at 16 MiB and streamed responses at 64 MiB, with lower per-service limits where configured. The global service limiter is 240 requests per minute per Cloudflare location. Authentication uses a separate 12-per-minute per-client limiter at each location. Cloudflare's own request and CPU quotas still apply. [Cloudflare rate limiting](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) · [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
 
+## Public access on the Linux site
+
+`https://linux.pointblankllc.com` automatically attaches the guest proxy to its same-origin `/api/workstation/public` endpoint. The HTML contains the endpoint configuration. Public access uses no shared credential. The host verifies the exact request origin and browser fetch metadata and publishes no CORS allowance for the endpoint. A nonbrowser client can imitate browser headers, so the endpoint's security boundary is its read-only upstream policy and rate limits.
+
+The gateway permits anonymous GitHub smart HTTP clone and fetch, plus read operations for the Alpine, npm, and PyPI package services. It rejects Git receive-pack, package writes, credentials, and arbitrary origins. Public Git requests have a 2 MiB request-body limit. Public traffic is limited to 90 requests per client and 180 total requests per minute at each Cloudflare location. Public requests emit independent `workstation_public_egress` audit records.
+
+The network dialog can switch to the authenticated gateway for scoped private access. Manual disconnect persists across reloads. Portable snapshot imports require an explicit `network on` after restore.
+
 ## Audit and operations
 
 The Worker logs request ID, UTC time, verified session ID, authorized service and destination, method, status, request length, declared response length when present, duration to upstream headers, decision, and failure reason. Authentication failures are also logged. Worker invocation logging is disabled in favor of these redacted records. The local `network logs` command reports the last 30 proxied requests seen by the tab. Inspect Workers Logs for `workstation_egress` events. [Cloudflare Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)

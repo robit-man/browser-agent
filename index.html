@@ -84,6 +84,7 @@
     <label>GitHub repository for private Git or push <input name="repository" placeholder="owner/repository" maxlength="200"></label>
     <label>GitHub username <input name="username" maxlength="39"></label>
     <label>Repository-scoped GitHub token <input name="git-token" type="password" autocomplete="new-password" maxlength="2048"></label>
+    <button type="button" id="network-public-connect" hidden>Use public access</button>
     <button type="submit">Connect</button>
     <button type="button" id="network-disable">Disconnect</button>
     <output id="network-message" role="status"></output>
@@ -396,7 +397,7 @@ async function readSnapshot(file, { portable = false, headerOnly = false } = {})
   const metadata = JSON.parse(await file.slice(8, 8 + length).text());
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw Error('Invalid snapshot metadata');
   const known = ['format', 'version', 'compatibility', 'createdAt', 'name', 'offline', 'bytes', 'sha256'];
-  if (!portable) known.push('generation', 'reset');
+  if (!portable) known.push('generation', 'reset', 'publicNetworkSuspended');
   if (Object.keys(metadata).some((key) => !known.includes(key))) throw Error('Unrecognized snapshot metadata');
   const tar = file.slice(8 + length);
   const { generation } = metadata;
@@ -405,6 +406,7 @@ async function readSnapshot(file, { portable = false, headerOnly = false } = {})
   }
   if (typeof metadata.name !== 'string' || !metadata.name || metadata.name.length > 80 || credentialText.test(metadata.name) ||
       !Number.isFinite(Date.parse(metadata.createdAt)) || typeof metadata.offline !== 'boolean' ||
+      (metadata.publicNetworkSuspended !== undefined && typeof metadata.publicNetworkSuspended !== 'boolean') ||
       (generation !== undefined && (!Number.isSafeInteger(generation) || generation < 1))) {
     throw Error('Invalid snapshot metadata');
   }
@@ -424,6 +426,8 @@ function snapshotMetadata(name, offline) {
 const proxyAddress = 'http://127.0.0.1:18791';
 const proxyRoot = '/run/pointblank-egress';
 const productionGateway = 'https://network.pointblankllc.com';
+const publicNetwork = location.origin === 'https://linux.pointblankllc.com';
+const publicGateway = location.origin + '/api/workstation/public';
 const localGateway = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 const gateway = document.querySelector('meta[name=workstation-gateway]')?.content ||
   (localGateway ? location.origin : productionGateway);
@@ -648,9 +652,10 @@ function newEgress() {
   const history = [];
   let generation = new AbortController();
   const hostPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-  async function call(path, { method = 'GET', headers, body, signal }) {
-    return fetch(gateway + path, {
-      method, headers, body, signal, credentials: 'omit', cache: 'no-store', redirect: 'error',
+  async function call(path, { method = 'GET', headers, body, signal, publicAccess = false }) {
+    return fetch((publicAccess ? publicGateway : gateway) + path, {
+      method, headers, body, signal, mode: publicAccess ? 'same-origin' : 'cors',
+      credentials: 'omit', cache: 'no-store', redirect: 'error',
     });
   }
   function disable() {
@@ -659,7 +664,7 @@ function newEgress() {
     generation = new AbortController();
   }
   function currentPermission() {
-    if (permission && permission.expires <= Date.now() / 1000) {
+    if (permission?.expires && permission.expires <= Date.now() / 1000) {
       disable();
       networkStatus();
     }
@@ -673,11 +678,11 @@ function newEgress() {
     const service = selectService(access, url);
     if (!service) return Response.json({ error: 'destination_or_operation_denied' }, { status: 403 });
     const outbound = {
-      Authorization: 'Bearer ' + access.token,
       'X-Workspace-Path': url.pathname + url.search,
       'X-Workspace-Method': method,
       'X-Workspace-Headers': JSON.stringify(headers),
     };
+    if (access.token) outbound.Authorization = 'Bearer ' + access.token;
     if (access.gitToken && service.id === 'github' &&
         (url.pathname.toLowerCase().startsWith('/' + access.repo + '.git/') ||
          url.pathname.toLowerCase().startsWith('/' + access.repo + '/'))) {
@@ -685,6 +690,7 @@ function newEgress() {
     }
     const response = await call('/v1/services/' + service.id, {
       method: 'POST', headers: outbound, body: ['GET', 'HEAD'].includes(method) ? undefined : body, signal,
+      publicAccess: access.publicAccess,
     });
     history.unshift({ time: new Date().toISOString(), service: service.id, method, status: response.status,
       id: response.headers.get('X-Request-ID') });
@@ -698,10 +704,22 @@ function newEgress() {
   return {
     disable,
     get connected() { return !!currentPermission(); },
+    get publicConnected() { return currentPermission()?.publicAccess === true; },
     get secrets() { return currentPermission() ? [permission.token, permission.gitToken].filter(Boolean) : []; },
     services() { return currentPermission()?.services ?? []; },
     logs() { return history.slice(); },
     expires() { return currentPermission()?.expires; },
+    async enablePublic() {
+      if (!publicNetwork) throw Error('Public networking is unavailable here');
+      const signal = AbortSignal.any([generation.signal, AbortSignal.timeout(12000)]);
+      const response = await call('/v1/services', { signal, publicAccess: true });
+      if (!response.ok) throw Error('Public networking returned HTTP ' + response.status);
+      const services = await response.json();
+      signal.throwIfAborted();
+      if (!Array.isArray(services) || !services.length) throw Error('Public networking has no configured services');
+      disable();
+      permission = { services, publicAccess: true };
+    },
     async enable(token, repo, username, gitToken) {
       if (token.length < 24 || token.length > 256) throw Error('Enter the workstation egress key');
       if (gitToken && (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !/^[a-zA-Z0-9-]{1,39}$/.test(username) ||
@@ -802,12 +820,14 @@ function newEgress() {
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
 let networkState = 'OFFLINE';
+let publicConnection;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
 const egress = newEgress();
 const workspaceGroup = '/sys/fs/cgroup/pointblank-workspace';
 const byId = (id) => document.getElementById(id);
 const checkpointKeys = ['checkpoint-a', 'checkpoint-b'];
 const preferenceKey = 'pointblank-linux-autosave';
+const networkPreferenceKey = 'pointblank-linux-public-network';
 const defaultAutosave = 60;
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const savedLabel = (entry) => 'Saved ' + new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -923,7 +943,9 @@ async function capture(name) {
 async function save() {
   if (!storageHealthy) throw Error('Import a verified backup or reset the workspace to resume saving');
   const entry = await capture('Workspace');
-  if (active?.metadata.sha256 !== entry.metadata.sha256) await commitWorkspace(entry);
+  if (publicNetwork && !publicNetworkOnStartup()) entry.metadata.publicNetworkSuspended = true;
+  if (active?.metadata.sha256 !== entry.metadata.sha256 ||
+      active?.metadata.publicNetworkSuspended !== entry.metadata.publicNetworkSuspended) await commitWorkspace(entry);
   status(savedLabel(active.metadata));
 }
 
@@ -994,6 +1016,7 @@ function download({ metadata, tar }) {
 }
 
 async function restartWith(entry) {
+  if (publicNetwork && !entry.metadata.reset) entry.metadata.publicNetworkSuspended = true;
   await commitWorkspace(entry);
   if (entry.metadata.reset) {
     const previous = checkpointKeys.find((key) => key !== active.key);
@@ -1106,6 +1129,7 @@ function ready() {
   if (workspaceStorage && storageHealthy && !pendingRecovery) status(active && !active.metadata.reset ? savedLabel(active.metadata) : 'Ready to save');
   updateControls();
   scheduleAutosave();
+  if (publicNetworkOnStartup()) void connectPublicNetwork();
   if (runtime?.legacy && workspaceStorage && storageHealthy) void operation('Migrating the previous workspace…', save);
 }
 
@@ -1114,10 +1138,40 @@ function networkStatus() {
   byId('network-settings').textContent = 'NETWORK: ' + networkState;
 }
 
+function publicNetworkOnStartup() {
+  if (!publicNetwork) return false;
+  let preference;
+  try { preference = localStorage.getItem(networkPreferenceKey); } catch {}
+  if (preference === 'off') return false;
+  return !active?.metadata.publicNetworkSuspended || preference === 'on:' + active.metadata.generation;
+}
+
+function rememberPublicNetwork(enabled) {
+  try { localStorage.setItem(networkPreferenceKey, enabled ? 'on:' + (active?.metadata.generation || 0) : 'off'); } catch {}
+}
+
+async function connectPublicNetwork(remember = false) {
+  if (!egress.publicConnected && !publicConnection) {
+    networkState = 'CONNECTING';
+    networkStatus();
+    publicConnection = egress.enablePublic().then(() => {
+      userSelectedNetwork = true;
+      networkState = 'ONLINE';
+      runtime.network.set('direct');
+    }).catch(() => {
+      if (networkState === 'CONNECTING') networkState = egress.connected ? 'ONLINE' : 'ERROR';
+      networkStatus();
+    }).finally(() => { publicConnection = undefined; });
+  }
+  await publicConnection;
+  if (remember && egress.publicConnected) rememberPublicNetwork(true);
+  return egress.publicConnected;
+}
+
 function openNetworkSettings() {
   const dialog = byId('network-dialog');
   if (!dialog.open) dialog.showModal();
-  if (!egress.connected) networkState = 'AUTH REQUIRED';
+  if (!publicNetwork && !egress.connected) networkState = 'AUTH REQUIRED';
   networkStatus();
 }
 
@@ -1128,8 +1182,13 @@ async function networkCommand(context) {
   let text;
   try {
     if (action === 'on') {
-      openNetworkSettings();
-      text = 'Authorize in the browser network dialog.';
+      if (publicNetwork) {
+        if (!egress.connected && !await connectPublicNetwork(true)) throw Error('Public networking could not connect.');
+        text = 'NETWORK: ONLINE';
+      } else {
+        openNetworkSettings();
+        text = 'Authorize in the browser network dialog.';
+      }
     } else if (action === 'off') {
       runtime.network.set('disable');
       text = 'NETWORK: OFFLINE';
@@ -1143,9 +1202,11 @@ async function networkCommand(context) {
       text = egress.logs().map(({ time, service, method, status, id }) =>
         [time, method, service, status, id].join(' ')).join('\n') || 'No requests in this tab.';
     } else if (action === 'test') {
-      const target = egress.services().find(({ id }) => id === 'diagnostics');
+      const usingPublic = egress.publicConnected;
+      const target = egress.services().find(({ id }) => id === (usingPublic ? 'alpine' : 'diagnostics'));
       if (!target) throw Error('Authorize networking and enable the diagnostics service.');
-      const response = await egress.browserRequest(target.origin + '/network-fixtures/json', 'GET', context.signal);
+      const path = usingPublic ? '/alpine/v3.24/main/aarch64/APKINDEX.tar.gz' : '/network-fixtures/json';
+      const response = await egress.browserRequest(target.origin + path, usingPublic ? 'HEAD' : 'GET', context.signal);
       text = 'Diagnostics HTTP ' + response.status + ' · ' + (response.headers.get('X-Request-ID') || '');
       status = response.ok ? 0 : 1;
       await response.body?.cancel();
@@ -1213,6 +1274,18 @@ function installUI() {
     } catch (error) { status(error.message); }
   });
   byId('network-settings').addEventListener('click', openNetworkSettings);
+  const publicButton = byId('network-public-connect');
+  publicButton.hidden = !publicNetwork;
+  if (publicNetwork) {
+    byId('network-title').textContent = 'Networking';
+    publicButton.addEventListener('click', async () => {
+      publicButton.disabled = true;
+      try {
+        if (await connectPublicNetwork(true)) byId('network-dialog').close();
+        else byId('network-message').textContent = 'Public networking is temporarily unavailable.';
+      } finally { publicButton.disabled = false; }
+    });
+  }
   byId('network-connect').addEventListener('submit', async (event) => {
     event.preventDefault();
     const field = (name) => event.target.elements.namedItem(name);
@@ -1230,7 +1303,7 @@ function installUI() {
       runtime.network.set('direct');
       networkStatus();
       byId('network-dialog').close();
-    } catch (error) { networkState = 'ERROR'; networkStatus(); message.textContent = error.message; }
+    } catch (error) { networkState = egress.connected ? 'ONLINE' : 'ERROR'; networkStatus(); message.textContent = error.message; }
     finally {
       field('key').value = field('git-token').value = '';
       submit.disabled = false;
@@ -1245,9 +1318,12 @@ function installUI() {
   window.addEventListener('pagehide', () => {
     egress.disable();
     userSelectedNetwork = false;
-    if (runtime?.network) runtime.network.set('disable');
+    if (runtime?.network) runtime.network.set('disable', { remember: false });
   });
-  window.addEventListener('pageshow', networkStatus);
+  window.addEventListener('pageshow', (event) => {
+    networkStatus();
+    if (event.persisted && workspaceReady && publicNetworkOnStartup()) void connectPublicNetwork();
+  });
   updateControls();
 }
 
@@ -1263,10 +1339,11 @@ exec "$bridge" "$@"
 
 function bindNetwork(network) {
   const set = network.set.bind(network);
-  network.set = (mode) => {
+  network.set = (mode, { remember = true } = {}) => {
     if (mode === 'relay') throw Error('Use the Network toolbar for authorized HTTPS');
     if (mode === 'disable') {
       egress.disable();
+      if (publicNetwork && remember) rememberPublicNetwork(false);
       userSelectedNetwork = false;
       networkState = 'OFFLINE';
       set('disable');

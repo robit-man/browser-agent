@@ -1,6 +1,7 @@
 name = "browser-agent"
 main = "linux-host.mjs"
 compatibility_date = "2026-11-23"
+compatibility_flags = ["enable_request_signal"]
 workers_dev = true
 preview_urls = true
 
@@ -8,6 +9,19 @@ preview_urls = true
 directory = "./.release-assets"
 binding = "ASSETS"
 run_worker_first = true
+
+[vars]
+PUBLIC_NETWORK_ORIGIN = "https://linux.pointblankllc.com"
+
+[[ratelimits]]
+name = "PUBLIC_CLIENT_LIMIT"
+namespace_id = "4013728121"
+simple = { limit = 90, period = 60 }
+
+[[ratelimits]]
+name = "PUBLIC_REQUEST_LIMIT"
+namespace_id = "4013728122"
+simple = { limit = 180, period = 60 }
 
 [observability]
 enabled = true

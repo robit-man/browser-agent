@@ -1,6 +1,8 @@
 const proxyAddress = 'http://127.0.0.1:18791';
 const proxyRoot = '/run/pointblank-egress';
 const productionGateway = 'https://network.pointblankllc.com';
+const publicNetwork = location.origin === 'https://linux.pointblankllc.com';
+const publicGateway = location.origin + '/api/workstation/public';
 const localGateway = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
 const gateway = document.querySelector('meta[name=workstation-gateway]')?.content ||
   (localGateway ? location.origin : productionGateway);
@@ -225,9 +227,10 @@ function newEgress() {
   const history = [];
   let generation = new AbortController();
   const hostPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-  async function call(path, { method = 'GET', headers, body, signal }) {
-    return fetch(gateway + path, {
-      method, headers, body, signal, credentials: 'omit', cache: 'no-store', redirect: 'error',
+  async function call(path, { method = 'GET', headers, body, signal, publicAccess = false }) {
+    return fetch((publicAccess ? publicGateway : gateway) + path, {
+      method, headers, body, signal, mode: publicAccess ? 'same-origin' : 'cors',
+      credentials: 'omit', cache: 'no-store', redirect: 'error',
     });
   }
   function disable() {
@@ -236,7 +239,7 @@ function newEgress() {
     generation = new AbortController();
   }
   function currentPermission() {
-    if (permission && permission.expires <= Date.now() / 1000) {
+    if (permission?.expires && permission.expires <= Date.now() / 1000) {
       disable();
       networkStatus();
     }
@@ -250,11 +253,11 @@ function newEgress() {
     const service = selectService(access, url);
     if (!service) return Response.json({ error: 'destination_or_operation_denied' }, { status: 403 });
     const outbound = {
-      Authorization: 'Bearer ' + access.token,
       'X-Workspace-Path': url.pathname + url.search,
       'X-Workspace-Method': method,
       'X-Workspace-Headers': JSON.stringify(headers),
     };
+    if (access.token) outbound.Authorization = 'Bearer ' + access.token;
     if (access.gitToken && service.id === 'github' &&
         (url.pathname.toLowerCase().startsWith('/' + access.repo + '.git/') ||
          url.pathname.toLowerCase().startsWith('/' + access.repo + '/'))) {
@@ -262,6 +265,7 @@ function newEgress() {
     }
     const response = await call('/v1/services/' + service.id, {
       method: 'POST', headers: outbound, body: ['GET', 'HEAD'].includes(method) ? undefined : body, signal,
+      publicAccess: access.publicAccess,
     });
     history.unshift({ time: new Date().toISOString(), service: service.id, method, status: response.status,
       id: response.headers.get('X-Request-ID') });
@@ -275,10 +279,22 @@ function newEgress() {
   return {
     disable,
     get connected() { return !!currentPermission(); },
+    get publicConnected() { return currentPermission()?.publicAccess === true; },
     get secrets() { return currentPermission() ? [permission.token, permission.gitToken].filter(Boolean) : []; },
     services() { return currentPermission()?.services ?? []; },
     logs() { return history.slice(); },
     expires() { return currentPermission()?.expires; },
+    async enablePublic() {
+      if (!publicNetwork) throw Error('Public networking is unavailable here');
+      const signal = AbortSignal.any([generation.signal, AbortSignal.timeout(12000)]);
+      const response = await call('/v1/services', { signal, publicAccess: true });
+      if (!response.ok) throw Error('Public networking returned HTTP ' + response.status);
+      const services = await response.json();
+      signal.throwIfAborted();
+      if (!Array.isArray(services) || !services.length) throw Error('Public networking has no configured services');
+      disable();
+      permission = { services, publicAccess: true };
+    },
     async enable(token, repo, username, gitToken) {
       if (token.length < 24 || token.length > 256) throw Error('Enter the workstation egress key');
       if (gitToken && (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !/^[a-zA-Z0-9-]{1,39}$/.test(username) ||

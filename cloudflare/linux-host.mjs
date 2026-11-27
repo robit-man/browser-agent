@@ -1,3 +1,5 @@
+import { handlePublicGateway, publicGatewayPath } from './worker.mjs';
+
 const cache = { 'Cache-Control': 'public, max-age=0, must-revalidate, no-transform' };
 const prefix = '/network-fixtures/';
 const script = '#!/bin/sh\nprintf "%s\\n" "POINTBLANK_SCRIPT_OK"\n';
@@ -26,6 +28,9 @@ function diagnostics(path, request) {
 export default {
   async fetch(request, env, context) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith(publicGatewayPath + '/') && env.PUBLIC_NETWORK_ORIGIN) {
+      return handlePublicGateway(request, env);
+    }
     if (url.pathname.startsWith(prefix)) return diagnostics(url.pathname.slice(prefix.length), request);
     if (url.pathname !== '/' && url.pathname !== '/index.html') return new Response('Not found', { status: 404 });
     if (request.method === 'HEAD') return new Response(null, { headers: { ...cache, 'Content-Type': 'text/html; charset=utf-8' } });

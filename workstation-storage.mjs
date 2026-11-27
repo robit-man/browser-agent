@@ -278,7 +278,7 @@ async function readSnapshot(file, { portable = false, headerOnly = false } = {})
   const metadata = JSON.parse(await file.slice(8, 8 + length).text());
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) throw Error('Invalid snapshot metadata');
   const known = ['format', 'version', 'compatibility', 'createdAt', 'name', 'offline', 'bytes', 'sha256'];
-  if (!portable) known.push('generation', 'reset');
+  if (!portable) known.push('generation', 'reset', 'publicNetworkSuspended');
   if (Object.keys(metadata).some((key) => !known.includes(key))) throw Error('Unrecognized snapshot metadata');
   const tar = file.slice(8 + length);
   const { generation } = metadata;
@@ -287,6 +287,7 @@ async function readSnapshot(file, { portable = false, headerOnly = false } = {})
   }
   if (typeof metadata.name !== 'string' || !metadata.name || metadata.name.length > 80 || credentialText.test(metadata.name) ||
       !Number.isFinite(Date.parse(metadata.createdAt)) || typeof metadata.offline !== 'boolean' ||
+      (metadata.publicNetworkSuspended !== undefined && typeof metadata.publicNetworkSuspended !== 'boolean') ||
       (generation !== undefined && (!Number.isSafeInteger(generation) || generation < 1))) {
     throw Error('Invalid snapshot metadata');
   }

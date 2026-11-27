@@ -1,12 +1,14 @@
 let workspaceStorage, workspaceLock, startup, runtime, active, agentMemory;
 let workspaceReady = false, busy = false, saveTimer;
 let networkState = 'OFFLINE';
+let publicConnection;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
 const egress = newEgress();
 const workspaceGroup = '/sys/fs/cgroup/pointblank-workspace';
 const byId = (id) => document.getElementById(id);
 const checkpointKeys = ['checkpoint-a', 'checkpoint-b'];
 const preferenceKey = 'pointblank-linux-autosave';
+const networkPreferenceKey = 'pointblank-linux-public-network';
 const defaultAutosave = 60;
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const savedLabel = (entry) => 'Saved ' + new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -122,7 +124,9 @@ async function capture(name) {
 async function save() {
   if (!storageHealthy) throw Error('Import a verified backup or reset the workspace to resume saving');
   const entry = await capture('Workspace');
-  if (active?.metadata.sha256 !== entry.metadata.sha256) await commitWorkspace(entry);
+  if (publicNetwork && !publicNetworkOnStartup()) entry.metadata.publicNetworkSuspended = true;
+  if (active?.metadata.sha256 !== entry.metadata.sha256 ||
+      active?.metadata.publicNetworkSuspended !== entry.metadata.publicNetworkSuspended) await commitWorkspace(entry);
   status(savedLabel(active.metadata));
 }
 
@@ -193,6 +197,7 @@ function download({ metadata, tar }) {
 }
 
 async function restartWith(entry) {
+  if (publicNetwork && !entry.metadata.reset) entry.metadata.publicNetworkSuspended = true;
   await commitWorkspace(entry);
   if (entry.metadata.reset) {
     const previous = checkpointKeys.find((key) => key !== active.key);
@@ -305,6 +310,7 @@ function ready() {
   if (workspaceStorage && storageHealthy && !pendingRecovery) status(active && !active.metadata.reset ? savedLabel(active.metadata) : 'Ready to save');
   updateControls();
   scheduleAutosave();
+  if (publicNetworkOnStartup()) void connectPublicNetwork();
   if (runtime?.legacy && workspaceStorage && storageHealthy) void operation('Migrating the previous workspace…', save);
 }
 
@@ -313,10 +319,40 @@ function networkStatus() {
   byId('network-settings').textContent = 'NETWORK: ' + networkState;
 }
 
+function publicNetworkOnStartup() {
+  if (!publicNetwork) return false;
+  let preference;
+  try { preference = localStorage.getItem(networkPreferenceKey); } catch {}
+  if (preference === 'off') return false;
+  return !active?.metadata.publicNetworkSuspended || preference === 'on:' + active.metadata.generation;
+}
+
+function rememberPublicNetwork(enabled) {
+  try { localStorage.setItem(networkPreferenceKey, enabled ? 'on:' + (active?.metadata.generation || 0) : 'off'); } catch {}
+}
+
+async function connectPublicNetwork(remember = false) {
+  if (!egress.publicConnected && !publicConnection) {
+    networkState = 'CONNECTING';
+    networkStatus();
+    publicConnection = egress.enablePublic().then(() => {
+      userSelectedNetwork = true;
+      networkState = 'ONLINE';
+      runtime.network.set('direct');
+    }).catch(() => {
+      if (networkState === 'CONNECTING') networkState = egress.connected ? 'ONLINE' : 'ERROR';
+      networkStatus();
+    }).finally(() => { publicConnection = undefined; });
+  }
+  await publicConnection;
+  if (remember && egress.publicConnected) rememberPublicNetwork(true);
+  return egress.publicConnected;
+}
+
 function openNetworkSettings() {
   const dialog = byId('network-dialog');
   if (!dialog.open) dialog.showModal();
-  if (!egress.connected) networkState = 'AUTH REQUIRED';
+  if (!publicNetwork && !egress.connected) networkState = 'AUTH REQUIRED';
   networkStatus();
 }
 
@@ -327,8 +363,13 @@ async function networkCommand(context) {
   let text;
   try {
     if (action === 'on') {
-      openNetworkSettings();
-      text = 'Authorize in the browser network dialog.';
+      if (publicNetwork) {
+        if (!egress.connected && !await connectPublicNetwork(true)) throw Error('Public networking could not connect.');
+        text = 'NETWORK: ONLINE';
+      } else {
+        openNetworkSettings();
+        text = 'Authorize in the browser network dialog.';
+      }
     } else if (action === 'off') {
       runtime.network.set('disable');
       text = 'NETWORK: OFFLINE';
@@ -342,9 +383,11 @@ async function networkCommand(context) {
       text = egress.logs().map(({ time, service, method, status, id }) =>
         [time, method, service, status, id].join(' ')).join('\n') || 'No requests in this tab.';
     } else if (action === 'test') {
-      const target = egress.services().find(({ id }) => id === 'diagnostics');
+      const usingPublic = egress.publicConnected;
+      const target = egress.services().find(({ id }) => id === (usingPublic ? 'alpine' : 'diagnostics'));
       if (!target) throw Error('Authorize networking and enable the diagnostics service.');
-      const response = await egress.browserRequest(target.origin + '/network-fixtures/json', 'GET', context.signal);
+      const path = usingPublic ? '/alpine/v3.24/main/aarch64/APKINDEX.tar.gz' : '/network-fixtures/json';
+      const response = await egress.browserRequest(target.origin + path, usingPublic ? 'HEAD' : 'GET', context.signal);
       text = 'Diagnostics HTTP ' + response.status + ' · ' + (response.headers.get('X-Request-ID') || '');
       status = response.ok ? 0 : 1;
       await response.body?.cancel();
@@ -412,6 +455,18 @@ function installUI() {
     } catch (error) { status(error.message); }
   });
   byId('network-settings').addEventListener('click', openNetworkSettings);
+  const publicButton = byId('network-public-connect');
+  publicButton.hidden = !publicNetwork;
+  if (publicNetwork) {
+    byId('network-title').textContent = 'Networking';
+    publicButton.addEventListener('click', async () => {
+      publicButton.disabled = true;
+      try {
+        if (await connectPublicNetwork(true)) byId('network-dialog').close();
+        else byId('network-message').textContent = 'Public networking is temporarily unavailable.';
+      } finally { publicButton.disabled = false; }
+    });
+  }
   byId('network-connect').addEventListener('submit', async (event) => {
     event.preventDefault();
     const field = (name) => event.target.elements.namedItem(name);
@@ -429,7 +484,7 @@ function installUI() {
       runtime.network.set('direct');
       networkStatus();
       byId('network-dialog').close();
-    } catch (error) { networkState = 'ERROR'; networkStatus(); message.textContent = error.message; }
+    } catch (error) { networkState = egress.connected ? 'ONLINE' : 'ERROR'; networkStatus(); message.textContent = error.message; }
     finally {
       field('key').value = field('git-token').value = '';
       submit.disabled = false;
@@ -444,9 +499,12 @@ function installUI() {
   window.addEventListener('pagehide', () => {
     egress.disable();
     userSelectedNetwork = false;
-    if (runtime?.network) runtime.network.set('disable');
+    if (runtime?.network) runtime.network.set('disable', { remember: false });
   });
-  window.addEventListener('pageshow', networkStatus);
+  window.addEventListener('pageshow', (event) => {
+    networkStatus();
+    if (event.persisted && workspaceReady && publicNetworkOnStartup()) void connectPublicNetwork();
+  });
   updateControls();
 }
 
@@ -462,10 +520,11 @@ exec "$bridge" "$@"
 
 function bindNetwork(network) {
   const set = network.set.bind(network);
-  network.set = (mode) => {
+  network.set = (mode, { remember = true } = {}) => {
     if (mode === 'relay') throw Error('Use the Network toolbar for authorized HTTPS');
     if (mode === 'disable') {
       egress.disable();
+      if (publicNetwork && remember) rememberPublicNetwork(false);
       userSelectedNetwork = false;
       networkState = 'OFFLINE';
       set('disable');
