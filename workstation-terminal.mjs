@@ -351,8 +351,7 @@ async function attachTerminals(vm, firstTerm, firstFit, Terminal, Fit, WebLinks,
     try {
       const command = 'cd -- "$1" 2>/dev/null || cd /workspace; ' +
         'export LANG=C.UTF-8 PS1=' + shellQuote(String.raw`\w \$ `) +
-        ' PROMPT_COMMAND=' + shellQuote(String.raw`printf '\033]5378;%s\007' "$PWD"`) +
-        '; exec bash --noprofile --norc -i';
+        '; exec bash --noprofile --rcfile ' + shellQuote(shellHistoryRC) + ' -i';
       const args = session.maintenance ? ['-i'] :
         ['-c', 'exec docker exec -it botpsy-alpine bash --noprofile --norc -c ' + shellQuote(command) + ' bash ' +
           shellQuote(session.directory || '/workspace')];

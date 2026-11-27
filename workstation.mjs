@@ -215,6 +215,8 @@ async function restartWith(entry) {
   if (publicNetwork && !entry.metadata.reset) entry.metadata.publicNetworkSuspended = true;
   await commitWorkspace(entry);
   if (entry.metadata.reset) {
+    shellHistoryDisabled = true;
+    await queueShellHistory(clearShellHistory).catch(console.warn);
     const previous = checkpointKeys.find((key) => key !== active.key);
     await workspaceStorage.remove(previous).catch(console.warn);
   }
@@ -310,9 +312,12 @@ async function prepareTerminal(vm) {
     'printf "%s\\n" ' + shellQuote('ca_certificate=' + proxyRoot + '/bundle.pem') + ' > ' + proxyRoot + '/wgetrc',
     'cat /mnt/oci/bin/alpine-agent > "$root/usr/local/bin/agent"',
     'cp -L /run/kw/bin/_network "$root/usr/local/libexec/browser-agent/_network"',
+    'cp -L /run/kw/bin/_history "$root' + shellHistoryBridge + '"',
+    'chmod 755 "$root' + shellHistoryBridge + '"',
     'cat /mnt/oci/bin/alpine-network > "$root/usr/local/bin/network"',
     'chmod 755 "$root/usr/local/bin/agent" "$root/usr/local/bin/network" "$root/usr/local/libexec/browser-agent/_network"',
   ].join(' && '));
+  await guestExec(vm, 'cat > /run/pointblank-workspace' + shellHistoryRC, { input: shellHistoryStartup });
   const proxy = await vm.spawn('/bin/sh', ['-c', 'exec docker exec botpsy-alpine python3 -I ' + proxyRoot + '/proxy.py'], { pty: false });
   void proxy.ended.catch(() => {});
   const discard = () => new WritableStream({ write() {} });
@@ -714,7 +719,7 @@ function adaptEntry(source) {
     ['S=new Kx(Gh),ee=x.get(`persist`)===`1`',
       'S=new Kx(Gh,new URL(location.pathname,location.href)),ee=workstation.legacy'],
     ['commands:{_oci:b,_agent:w}});let e=new lS(l,S)',
-      'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
+      'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand,_history:workstation.shellHistoryCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
     ['memory:new Ux,documentModel:n', 'memory:new Ux(workstation.agentMemory),documentModel:n'],
     ['d=new fT(u,o,y)', 'd=new fT(workstation.registerAgentTools(u),o,y)'],
     ['await u.tools.ensure().catch(e=>{f=e})',
@@ -737,7 +742,7 @@ function adaptEntry(source) {
 }
 
 globalThis.workstation = {
-  alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, ready, egress,
+  alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, shellHistoryCommand, ready, egress,
   disks: workspaceDisks,
   models: workspaceAgentModels,
   formatModels: formatWorkspaceAgentModels,

@@ -284,3 +284,11 @@ Run `node test/agent-workstation.mjs` against the fixture or set `WORKSTATION_TE
 Cloudflare host version `423fb6d0-e530-41cc-a747-6759195c754f` serves production at 100%. The standalone HTML is 103,119,471 bytes, 12,590 bytes larger than the previous version. Production, the final preview, and a repeated local build matched SHA-256 `52e9a5e82c56da021daeffd97148303ac1a5645d49df5fec4f0d1b4c038e44d4`. The rollback host version is `109debb2-aeaf-48e7-b6b0-b9223bf09881`.
 
 Production Chromium passed tool discovery, the model list and selection, and all three workspace tool calls. The first live shell reached the Alpine diagnostics endpoint, GitHub through native Git, and npm without opening networking settings.
+
+## Bash history across reloads
+
+Bash records commands as each prompt returns and loads its history from browser storage when a pane starts. Chromium verified Up Arrow and Ctrl+R after a reload with autosave disabled, merged history from two panes, multiline entries, duplicate suppression, and omission of a space-prefixed command and a credential-bearing URL. `history-clear` removed persisted history across another reload. The same history checks passed on the fixture, the Cloudflare preview, and production.
+
+The iPhone input replay suite passed in Chromium. The first live shell contained `/usr/bin/git` and connected to GitHub and npm using default networking.
+
+Host version `8d9703dd-2565-4aa2-910c-6ddbeaba10c9` serves production at 100%. The standalone HTML, preview, production response, and repeat build matched SHA-256 `2023e7f7671b0d4689477290bf23c243cdf55d7ca61807b83416ff01811b48a5`. Rollback host version `423fb6d0-e530-41cc-a747-6759195c754f` restores the previous release.
