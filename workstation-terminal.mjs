@@ -295,7 +295,11 @@ async function attachTerminals(vm, firstTerm, firstFit, Terminal, Fit, WebLinks,
       term.options.disableStdin = !guest.permissions.write;
       term.textarea.readOnly = !guest.permissions.write;
     }
-    term.onData((data) => send(session, keyboard.apply(session, data)));
+    term.onData((data) => {
+      const mapped = keyboard.apply(session, data);
+      if (mapped !== data) session.resetMobileInput?.();
+      send(session, mapped);
+    });
     term.onBinary((data) => send(session, Uint8Array.from(data, (char) => char.charCodeAt(0))));
     term.onResize(({ cols, rows }) => {
       session.pty?.resize(cols, rows);
@@ -303,7 +307,7 @@ async function attachTerminals(vm, firstTerm, firstFit, Terminal, Fit, WebLinks,
     });
     wireTerminalSelection(session, showTextMenu);
     wireTerminalTouchScroll(session);
-    wireTerminalDictation(session, send);
+    session.resetMobileInput = wireTerminalInput(session, send);
     content.addEventListener('focusin', () => select(session, false));
     content.addEventListener('pointerdown', () => select(session, false));
     term.attachCustomKeyEventHandler((event) => {

@@ -224,3 +224,13 @@ node test/large-git.mjs
 WORKSTATION_TEST_GROWTH=1 node test/large-git.mjs
 WORKSTATION_TEST_GROWTH=cancel node test/large-git.mjs
 ```
+
+## iPhone space and text edits
+
+The previous production build sent two spaces to Alpine when an iPhone-style space key with key code 229 was followed by a text insertion. The older regression exercised key code 32. The TTY Shift+letter fix was already present in Browser Agent. The new mobile handler sends edits through a single path based on the textarea value.
+
+In the regression, the previous production build printed `<a  b>` for the single-space sequence in both WebKit and Chromium. The new build printed `<a b>`. The suite also covers intentional consecutive spaces, Shift+letter, composition followed by space, deletion, and text replacement. It uses iPhone emulation and replayed events.
+
+Run `node test/mobile-input.mjs` after starting `test/fixture.mjs`. Set `WORKSTATION_TEST_ENGINE=webkit` to run with WebKit or `WORKSTATION_TEST_ORIGIN` to target a deployed build.
+
+The production host serves version `4f7da3d2-3ef0-40e2-919a-6362e8d5b906` at 100%. The production HTML matched the tested preview and rebuilt standalone file with SHA-256 `343f36b5345cdbdc140716b453f4478df4b3d589b12e5baa1917043aab63a496`. The rollback host version is `291fa722-1a73-41f2-8797-bfa188c57359`.

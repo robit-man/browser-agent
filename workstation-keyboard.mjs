@@ -84,6 +84,7 @@ function installTerminalKeyboard(getActive, send, signal) {
     const active = getActive();
     if (!active || active.state !== 'online') return;
     const data = encodeSpecial(key, event);
+    active.resetMobileInput?.();
     clearModifiers();
     send(active, data);
   }
@@ -307,32 +308,106 @@ function wireTerminalSelection(session, showTermMenu) {
   });
 }
 
-function wireTerminalDictation(session, send) {
-  const field = session.term.textarea;
-  // Listen on the container in the capture phase so this runs before xterm's
-  // own listeners on the field in every browser.
-  const element = session.term.element;
-  const on = (type, handler) => element.addEventListener(type, event => {
+function wireTerminalInput(session, send) {
+  const { term } = session;
+  const field = term.textarea;
+  const on = (type, handler) => term.element.addEventListener(type, event => {
     if (event.target === field) handler(event);
   }, true);
-  let sent = '', base = null, spaceKeyTime = null;
-  const repeatsSpace = (event) => spaceKeyTime !== null &&
-    event.timeStamp >= spaceKeyTime && event.timeStamp - spaceKeyTime <= 120;
-  const reset = () => {
-    sent = '';
-    base = null;
-    spaceKeyTime = null;
-    field.value = '';
-  };
-  session.term.onKey(({ key, domEvent }) => {
-    if (coarsePointer.matches && key === ' ' && !domEvent.isComposing) spaceKeyTime = domEvent.timeStamp;
-  });
-  on('keypress', (event) => {
-    if ((event.key === ' ' || event.charCode === 32) && repeatsSpace(event)) {
-      event.preventDefault();
-      event.stopPropagation();
+  let sent = '';
+  function textEdit(value = field.value) {
+    const previous = sent;
+    sent = value;
+    if (value.startsWith(previous)) return value.slice(previous.length);
+    const before = Array.from(previous), after = Array.from(value);
+    let same = 0;
+    while (same < before.length && same < after.length && before[same] === after[same]) same++;
+    return '\x7f'.repeat(before.length - same) + after.slice(same).join('');
+  }
+
+  const touchInput = coarsePointer.matches || /iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (touchInput && !term.options.screenReaderMode) {
+    // xterm can send the same space from both its 229-key textarea timer and
+    // its input listener. Route mobile text through the textarea edits alone.
+    const preview = term.element.querySelector('.composition-view');
+    const modifiers = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift', 'CapsLock']);
+    let composing = false, commitTimer;
+    const reset = () => {
+      clearTimeout(commitTimer);
+      commitTimer = undefined;
+      composing = false;
+      preview.classList.remove('active');
+      sent = field.value = '';
+    };
+    function commit() {
+      clearTimeout(commitTimer);
+      commitTimer = undefined;
+      // WebKit represents some typed spaces as non-breaking spaces.
+      const edit = textEdit(field.value.replaceAll('\u00a0', ' '));
+      if (edit) term.input(edit.replaceAll('\n', '\r'), true);
+      if (edit.includes('\n')) reset();
     }
-  });
+    const discard = () => {
+      if (commitTimer !== undefined) commit();
+      reset();
+    };
+    const plain = event => !event.metaKey && (!(event.altKey || event.ctrlKey) || event.getModifierState('AltGraph'));
+    on('keydown', event => {
+      if (event.isComposing || composing || event.keyCode === 229 ||
+          (plain(event) && (Array.from(event.key).length === 1 || event.key === 'Dead' ||
+            event.key === 'Backspace' && field.value))) {
+        // The browser still performs the native edit and fires input.
+        event.stopPropagation();
+      } else if (!modifiers.has(event.key)) {
+        discard();
+      }
+    });
+    on('keypress', event => {
+      if (composing || event.isComposing || plain(event) && event.charCode >= 32) event.stopPropagation();
+    });
+    on('compositionstart', event => {
+      event.stopPropagation();
+      if (commitTimer !== undefined) commit();
+      composing = true;
+      preview.textContent = '';
+      preview.classList.add('active');
+    });
+    on('compositionupdate', event => {
+      event.stopPropagation();
+      preview.textContent = event.data;
+      for (const property of ['top', 'left', 'height', 'lineHeight']) preview.style[property] = field.style[property];
+      preview.style.fontFamily = term.options.fontFamily;
+      preview.style.fontSize = term.options.fontSize + 'px';
+    });
+    on('compositionend', event => {
+      event.stopPropagation();
+      composing = false;
+      preview.classList.remove('active');
+      // Some keyboards update the field after compositionend.
+      clearTimeout(commitTimer);
+      commitTimer = setTimeout(commit, 0);
+    });
+    on('beforeinput', event => {
+      if (event.inputType === 'deleteContentBackward' && !field.value &&
+          !composing && !event.isComposing && event.cancelable) {
+        event.preventDefault();
+        term.input('\x7f', true);
+      }
+    });
+    on('input', event => {
+      event.stopPropagation();
+      if (!composing && !event.isComposing) commit();
+    });
+    on('paste', discard);
+    field.addEventListener('blur', reset);
+    return discard;
+  }
+
+  let base = null;
+  const reset = () => {
+    sent = field.value = '';
+    base = null;
+  };
   on('beforeinput', event => {
     base = event.inputType === 'insertText' && !event.isComposing ? field.value : null;
   });
@@ -341,15 +416,6 @@ function wireTerminalDictation(session, send) {
     // Browsers that skip beforeinput leave the field as it was last sent.
     const before = base ?? sent;
     base = null;
-    // Some phone keyboards also emit insertText for a space xterm already sent.
-    const duplicateSpace = event.data === ' ' && repeatsSpace(event) &&
-      (field.value === before || field.value === before + ' ');
-    spaceKeyTime = null;
-    if (duplicateSpace) {
-      field.value = before;
-      event.stopPropagation();
-      return;
-    }
     // A plain insert at the end is xterm's to send. It also knows when a key
     // press already sent the character (Shift+letter), so it never doubles.
     if (before !== sent && before !== '' || field.value === before + (event.data ?? '')) {
@@ -357,18 +423,11 @@ function wireTerminalDictation(session, send) {
       return;
     }
     event.stopPropagation();
-    const previous = Array.from(sent), next = Array.from(field.value);
-    let same = 0;
-    while (same < previous.length && same < next.length && previous[same] === next[same]) same++;
-    const edit = '\x7f'.repeat(previous.length - same) + next.slice(same).join('');
-    sent = field.value;
+    const edit = textEdit();
     if (edit) send(session, edit);
   });
   // A key press or leaving the terminal ends the dictation run.
-  on('keydown', event => {
-    spaceKeyTime = null;
-    if (!event.isComposing && event.keyCode !== 229) reset();
-  });
+  on('keydown', event => { if (!event.isComposing && event.keyCode !== 229) reset(); });
   field.addEventListener('blur', reset);
 }
 
