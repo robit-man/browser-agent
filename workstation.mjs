@@ -305,7 +305,7 @@ async function prepareTerminal(vm) {
   }
   await guestExec(vm, [
     'root=/run/pointblank-workspace',
-    'install -d -m 755 "$root/usr/local/bin" "$root/usr/local/libexec/browser-agent"',
+    'install -d -m 755 "$root/usr/local/bin" "$root/usr/local/libexec/browser-agent/bin"',
     'cp -L /run/kw/bin/_egress "$root/usr/local/libexec/browser-agent/_egress"',
     'chmod 755 "$root/usr/local/libexec/browser-agent/_egress"',
     'cat "$root/etc/ssl/certs/ca-certificates.crt" ' + proxyRoot + '/ca.pem > ' + proxyRoot + '/bundle.pem',
@@ -314,8 +314,12 @@ async function prepareTerminal(vm) {
     'cp -L /run/kw/bin/_network "$root/usr/local/libexec/browser-agent/_network"',
     'cp -L /run/kw/bin/_history "$root' + shellHistoryBridge + '"',
     'chmod 755 "$root' + shellHistoryBridge + '"',
+    'cp -L /run/kw/bin/_publish "$root/usr/local/libexec/browser-agent/_publish"',
+    'printf "%s\\n" "#!/bin/sh" ' + shellQuote('exec /usr/local/libexec/browser-agent/_publish "$@"') +
+      ' > "$root/usr/local/libexec/browser-agent/bin/publish"',
     'cat /mnt/oci/bin/alpine-network > "$root/usr/local/bin/network"',
-    'chmod 755 "$root/usr/local/bin/agent" "$root/usr/local/bin/network" "$root/usr/local/libexec/browser-agent/_network"',
+    'chmod 755 "$root/usr/local/bin/agent" "$root/usr/local/bin/network" "$root/usr/local/libexec/browser-agent/bin/publish" ' +
+      '"$root/usr/local/libexec/browser-agent/_network" "$root/usr/local/libexec/browser-agent/_publish"',
   ].join(' && '));
   await guestExec(vm, 'cat > /run/pointblank-workspace' + shellHistoryRC, { input: shellHistoryStartup });
   const proxy = await vm.spawn('/bin/sh', ['-c', 'exec docker exec botpsy-alpine python3 -I ' + proxyRoot + '/proxy.py'], { pty: false });
@@ -719,7 +723,7 @@ function adaptEntry(source) {
     ['S=new Kx(Gh),ee=x.get(`persist`)===`1`',
       'S=new Kx(Gh,new URL(location.pathname,location.href)),ee=workstation.legacy'],
     ['commands:{_oci:b,_agent:w}});let e=new lS(l,S)',
-      'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand,_history:workstation.shellHistoryCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
+      'commands:{_oci:b,_agent:w,_egress:workstation.egress.handler,_network:workstation.networkCommand,_history:workstation.shellHistoryCommand,_publish:workstation.publishCommand}});await workstation.prepareGuest(l);workstation.bindNetwork(S);let e=new lS(l,S)'],
     ['memory:new Ux,documentModel:n', 'memory:new Ux(workstation.agentMemory),documentModel:n'],
     ['d=new fT(u,o,y)', 'd=new fT(workstation.registerAgentTools(u),o,y)'],
     ['await u.tools.ensure().catch(e=>{f=e})',
@@ -738,11 +742,12 @@ function adaptEntry(source) {
       'agent network status | test | fetch URL [PATH] | disable'],
   ];
   for (const [anchor, replacement] of hooks) source = replaceRequired(source, anchor, replacement);
-  return adaptWorkspaceModelRegistry(source);
+  return adaptPublicationTransport(adaptWorkspaceModelRegistry(source));
 }
 
 globalThis.workstation = {
   alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, shellHistoryCommand, ready, egress,
+  publishCommand,
   disks: workspaceDisks,
   models: workspaceAgentModels,
   formatModels: formatWorkspaceAgentModels,

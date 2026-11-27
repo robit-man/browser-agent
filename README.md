@@ -6,11 +6,17 @@ Pointblank Linux boots a client-side Alpine 3.24 aarch64 workspace with Bash, Py
 
 Fresh and reset workspaces include Git, Node.js, npm, APT, curl, jq, ripgrep (`rg`), nano, make, patch, file, zip, btop, and cloudflared. These tools are available from a downloaded copy of the HTML. Saved and imported workspaces restore their own package set. In an older workspace, run `apk add curl jq ripgrep nano make patch file zip btop` to install the utilities available from the stable Alpine repositories.
 
-The bundled cloudflared can validate local ingress rules. Running a Cloudflare Tunnel from the browser guest requires outbound TCP or UDP port 7844, which is outside the workspace's HTTP and HTTPS gateway. [Cloudflare Tunnel ports](https://developers.cloudflare.com/tunnel/configuration/#firewall-rules)
+The bundled cloudflared can validate local ingress rules. Its tunnel transport requires outbound port 7844. To make a guest HTTP server reachable from the internet, use the workstation's `publish` command. [Cloudflare Tunnel ports](https://developers.cloudflare.com/tunnel/configuration/#firewall-rules)
 
 Use `apk add` for Alpine system packages and `npm install` for JavaScript dependencies. APT manages Debian packages. [Alpine packages](https://pkgs.alpinelinux.org/packages?branch=v3.24&arch=aarch64) · [Debian APT](https://wiki.debian.org/Apt/)
 
 The **Workspace** menu includes **Files** for downloads and folder ZIPs, **Preview server** for static or server-rendered guest HTTP pages, and **Tool packs** for installing shell utilities or a native C/C++ toolchain. To try the preview, run `python3 -m http.server 8000 --bind 127.0.0.1` in the guest and open port 8000. [Workspace tools specification](docs/WORKSPACE-TOOLS.md)
+
+## Publish a guest web server
+
+Start your app in Alpine and authorize the workstation with its egress key in **Networking**. In a second shell, run `publish 8000` using the port your app listens on, then confirm in the browser. Share the HTTPS link printed in the terminal. The workstation tab must stay open. Use `publish status` to show the link and `publish off` to revoke it.
+
+The Cloudflare Worker forwards HTTP and WebSocket traffic to the chosen guest port through the browser. Alpine can run a second reverse proxy on that port and route to other apps on its own loopback. Each deployment provides one active publication on a dedicated origin. The link lasts until you stop it, the tab disconnects, or the authenticated session expires. [Publication architecture and limits](docs/NETWORK.md#guest-http-publication)
 
 ## Local WebGPU agent
 

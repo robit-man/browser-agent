@@ -292,3 +292,13 @@ Bash records commands as each prompt returns and loads its history from browser 
 The iPhone input replay suite passed in Chromium. The first live shell contained `/usr/bin/git` and connected to GitHub and npm using default networking.
 
 Host version `8d9703dd-2565-4aa2-910c-6ddbeaba10c9` serves production at 100%. The standalone HTML, preview, production response, and repeat build matched SHA-256 `2023e7f7671b0d4689477290bf23c243cdf55d7ca61807b83416ff01811b48a5`. Rollback host version `423fb6d0-e530-41cc-a747-6759195c754f` restores the previous release.
+
+## Workers-only publication
+
+Native `cloudflared` 2026.11.2 failed Quick Tunnel provisioning from the live Alpine guest with a DNS error. A direct connection from the guest to Cloudflare Tunnel's TCP port 7844 was refused. The new `publish` path uses a Worker, Durable Object, and browser connection to a single Alpine port.
+
+Chromium opened the HTTPS publication in a separate browser context. The request reached a reverse proxy in Alpine on port 8137 and a second Alpine server on 8138. The suite also exercised authorization, reserved-port denial, visitor-link checks, an absolute JavaScript asset, HEAD and PATCH, binary bodies, query strings, status propagation, redirect rewriting, app cookies, service-worker denial, size limits, streamed events, and WebSocket subprotocol negotiation with text and binary echo. `publish off` ended the active publication.
+
+The running publication Worker version is `94fe4c25-ae23-417d-9afb-7bfcd80ac52e`. Host version `72540ef3-c5ff-4ffe-9971-1850c2720cf1` serves the standalone HTML. The HTML is 103,141,565 bytes with SHA-256 `fcaa9a34c26f473a5f209af85e5daf8864e168657a43835840575fb2511a3f36`. Roll back the host to `8d9703dd-2565-4aa2-910c-6ddbeaba10c9` to restore the previous client. The private networking Worker keeps its existing routes.
+
+Run `node test/publish.mjs` with `WORKSTATION_PUBLISH_TEST_KEY_FILE` pointing to an authorized workstation egress-key file. The test requires the publication slot to be available. The complete suite passed from the production workstation, and the first live shell reached Alpine mirrors, GitHub, and npm with default networking. The standalone artifact, hosted preview, production response, and repeated build matched byte for byte.

@@ -278,6 +278,10 @@ function newEgress() {
   }
   return {
     disable,
+    publicationAuthorization() {
+      const access = currentPermission();
+      return access?.token && { token: access.token, signal: generation.signal };
+    },
     get connected() { return !!currentPermission(); },
     get publicConnected() { return currentPermission()?.publicAccess === true; },
     get secrets() { return currentPermission() ? [permission.token, permission.gitToken].filter(Boolean) : []; },

@@ -43,3 +43,17 @@ Portable imports and named restores require explicit approval before public acce
 The Worker logs request ID, UTC time, verified session ID, authorized service and destination, method, status, request length, declared response length when present, duration to upstream headers, decision, and failure reason. Authentication failures are also logged. Worker invocation logging is disabled in favor of these redacted records. The local `network logs` command reports the last 30 proxied requests seen by the tab. Inspect Workers Logs for `workstation_egress` events. [Cloudflare Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
 
 A workstation deployment requires no remote guest disk, execution service, R2 bucket, or dedicated server. Hosted artifacts and gateway releases use the existing Cloudflare account. The Worker registry is the sole authority for permitted egress services.
+
+## Guest HTTP publication
+
+The `publish PORT` shell command opens a WebSocket from the authorized workstation browser to the publication Worker. The Worker checks the existing gateway session through its service binding. The browser forwards requests through the runtime's loopback connection to the selected Alpine port. The visitor never connects directly to the VM. This keeps the app and its files in the browser and supports an Alpine reverse proxy forwarding to other guest services.
+
+Use the link printed by the command. It establishes a short-lived, host-only visitor cookie on the publication Worker and redirects to the site's root. Absolute asset paths, query strings, guest redirects and normal HTTP methods work at that root. The link acts as a credential for the publication. The Worker strips its own cookie before forwarding a request and keeps published app content on a separate origin from the workstation. Service-worker registration is blocked on the publication origin.
+
+The deployment has one live publication slot, eight concurrent requests or WebSockets, a 1 MiB request limit, a 16 MiB streamed response limit, and a 30-second HTTP response idle timeout. WebSocket messages may be up to 65,535 bytes with a 32 MiB total transfer per connection. Closing the publisher tab, disconnecting networking, stopping the publication, or reaching the publisher's session expiry ends the link. Publication sessions and in-flight relay buffers are outside workspace snapshots. Worker logs record activity and byte counts without logging link credentials or payloads.
+
+The publication worker uses a SQLite-backed Durable Object for socket coordination. Deploy it before the standalone host so the `publish` command can reach its service. No change to the standalone host's DNS or the private networking Worker's routes is required.
+
+```sh
+npx --yes wrangler@4.168.0 deploy --config cloudflare/publish.toml
+```

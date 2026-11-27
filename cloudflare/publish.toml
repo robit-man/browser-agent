@@ -1,0 +1,36 @@
+name = "pointblank-linux-publish"
+main = "publish.mjs"
+compatibility_date = "2026-11-23"
+compatibility_flags = ["enable_request_signal"]
+workers_dev = true
+preview_urls = false
+
+[vars]
+WORKSTATION_ORIGIN = "https://linux.pointblankllc.com"
+PUBLISH_ORIGIN = "https://pointblank-linux-publish.pointblank-connect.workers.dev"
+
+[[services]]
+binding = "NETWORK"
+service = "pointblank-linux-network"
+
+[[durable_objects.bindings]]
+name = "PUBLICATION"
+class_name = "WorkspacePublication"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WorkspacePublication"]
+
+[[ratelimits]]
+name = "PUBLISH_AUTH_LIMIT"
+namespace_id = "4013728131"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "PUBLISH_VIEW_LIMIT"
+namespace_id = "4013728132"
+simple = { limit = 120, period = 60 }
+
+[observability.logs]
+enabled = true
+invocation_logs = false

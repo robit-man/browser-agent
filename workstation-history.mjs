@@ -92,6 +92,7 @@ async function shellHistoryCommand(context) {
 }
 
 const shellHistoryStartup = String.raw`
+export PATH="/usr/local/libexec/browser-agent/bin:$PATH"
 HISTFILE=/dev/null
 HISTTIMEFORMAT=
 HISTSIZE=2000
