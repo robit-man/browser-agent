@@ -108,6 +108,7 @@ async function fixture(path, method = 'GET') {
 
 async function verifyWorkspace(page) {
   assert.equal(await page.locator('#network-label').textContent(), 'NETWORK: OFFLINE');
+  await guest(page, 'test "$(stat -c %a /tmp)" = 1777 && file=$(mktemp) && test -f "$file" && rm "$file"');
   await guest(page, "apk info -e curl git wget && test \"$(cat /root/kept.txt)\" = home && test \"$(cat /etc/pointblank-test)\" = config && test \"$(cat /workspace/repo/readme.txt)\" = 'updated outside the browser' && cd /workspace/repo && test \"$(git rev-list --count HEAD)\" = 3 && test \"$(git remote get-url origin)\" = https://github.com/pointblank-fixture/upstream.git");
 }
 

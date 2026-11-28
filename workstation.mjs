@@ -667,6 +667,7 @@ function adaptDocker(script) {
   fi
   if [ "$CNAME" = botpsy-alpine ]; then
     mkdir -p "$CDIR/merged/workspace" "$CDIR/merged${proxyRoot}"
+    mkdir -p -m 1777 "$CDIR/merged/tmp" || exit 1
     mount --bind ${proxyRoot} "$CDIR/merged${proxyRoot}"
     ln -sfn "$CDIR/merged" /run/pointblank-workspace
   fi

@@ -250,3 +250,13 @@ Production Chromium passed the same local package and persistence tests, plus na
 The Alpine prompt now shows the working directory and Bash's privilege marker. The Chromium preview tests verified `/workspace #`, the update after `cd`, independent directories in split panes, and the inherited directory in a forked pane. Mobile Chromium also verified changing directory with the on-screen Enter control. iPhone-emulated WebKit verified a directory containing a space.
 
 Host version `f88d4559-db8f-47c1-916a-30bade311c78` serves production at 100%. The tested HTML has SHA-256 `c43d34c2b113156016e24e60c30cdfd0750776440d6cdfe5fb9cf89f65f3a224`. The rollback host version is `b64cdfdf-4229-486e-9e16-2bdbc3042622`.
+
+## Pre-cloudflared rollback and restored temporary directory
+
+Production first returned to host version `f88d4559-db8f-47c1-916a-30bade311c78` from commit `233fab1`. The production response matched the original release, and native networking reached the diagnostics endpoint, GitHub, and npm with no extra activation. A restored workspace retained its saved file, but `mktemp` reported a missing directory because checkpoints omit `/tmp`.
+
+The follow-up build recreates `/tmp` with mode 1777 when opening a workspace. It retains the credential exclusions and exact binary integrity check needed to save workspaces made during the cloudflared release. New workspaces use the original pre-cloudflared image. The bundled payload bytes match the original rollback target. The standalone HTML is 86,103,794 bytes and matches the preview and repeat build with SHA-256 `96f92187861dd051c58a64e0e038e3ee838ca16a5fb49c27a403d0ee3a2bdec2`.
+
+In iPhone-emulated WebKit, a saved workspace from the later release restored on the patched rollback, ran `mktemp`, and saved again with its existing filesystem.
+
+The confirmed reset test passed on both the local upgraded profile and the Cloudflare preview. Host version `1428989d-7917-4eed-98f3-f5737cf8e3ca` now serves production at 100%, and the production response matches the standalone SHA-256. Host version `f88d4559-db8f-47c1-916a-30bade311c78` is the unmodified pre-cloudflared rollback target.
