@@ -7,11 +7,13 @@ let publicConnection, networkPaused = false;
 let restored = false, storageHealthy = true, pendingRecovery = false, userSelectedNetwork = false;
 const egress = newEgress();
 const workspaceGroup = '/sys/fs/cgroup/pointblank-workspace';
-const workspaceMemoryMiB = 512;
+const workspaceMemoryMiB = /iPhone|iPad|iPod|Android/.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 320 : 512;
 const byId = (id) => document.getElementById(id);
 const checkpointKeys = ['checkpoint-a', 'checkpoint-b'];
 const preferenceKey = 'pointblank-linux-autosave';
 const networkPreferenceKey = 'pointblank-linux-public-network';
+const bootAttemptKey = 'pointblank-linux-boot-in-progress';
 const defaultAutosave = 60;
 const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const savedLabel = (entry) => 'Saved ' + new Date(entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -33,8 +35,8 @@ async function guestExec(vm, command, options) {
   return result.stdout;
 }
 
-async function loadWorkspace() {
-  const db = await openDatabase().catch(() => null);
+async function loadWorkspace(temporary = false) {
+  const db = temporary ? null : await openDatabase().catch(() => null);
   workspaceLock = await acquireWorkspace().catch(() => ({ exclusive: false }));
   if (workspaceLock.inUse) {
     byId('boot').textContent = 'Workspace is open in another tab. Close that tab and reload here.';
@@ -43,6 +45,11 @@ async function loadWorkspace() {
     return false;
   }
   agentMemory = await agentStorage(db).catch(() => undefined);
+  if (temporary) {
+    status('Temporary session · saved workspace protected');
+    byId('storage-usage').textContent = 'Session only';
+    return true;
+  }
   if (!workspaceLock.exclusive) {
     status('Session only · browser locking unavailable');
     return true;
@@ -342,11 +349,49 @@ async function prepareTerminal(vm) {
 
 function ready() {
   workspaceReady = true;
+  markBootAttempt(false);
   if (workspaceStorage && storageHealthy && !pendingRecovery) status(active && !active.metadata.reset ? savedLabel(active.metadata) : 'Ready to save');
   updateControls();
   scheduleAutosave();
   watchWorkspaceGrowth();
   if (runtime?.legacy && workspaceStorage && storageHealthy) void operation('Migrating the previous workspace…', save);
+}
+
+function markBootAttempt(pending) {
+  try {
+    if (pending) sessionStorage.setItem(bootAttemptKey, '1');
+    else sessionStorage.removeItem(bootAttemptKey);
+  } catch {}
+}
+
+async function chooseBoot() {
+  let interrupted;
+  try { interrupted = sessionStorage.getItem(bootAttemptKey) === '1'; } catch {}
+  let temporary = false;
+  if (interrupted) {
+    const boot = byId('boot');
+    const panel = document.createElement('div');
+    const explanation = document.createElement('p');
+    explanation.textContent = 'Linux startup was interrupted. Retry or open a temporary shell. Existing saves are kept.';
+    const buttons = document.createElement('div');
+    buttons.className = 'dialog-actions';
+    temporary = await new Promise(resolve => {
+      for (const [label, fresh] of [['Retry saved workspace', false], ['Open temporary shell', true]]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.addEventListener('click', () => resolve(fresh), { once: true });
+        buttons.append(button);
+      }
+      panel.append(explanation, buttons);
+      boot.replaceChildren(panel);
+    });
+    boot.textContent = 'Starting Linux…';
+  }
+  markBootAttempt(true);
+  const allowed = await loadWorkspace(temporary);
+  if (!allowed) markBootAttempt(false);
+  return allowed;
 }
 
 function networkStatus() {
@@ -670,6 +715,11 @@ function adaptDocker(script) {
     prepare_image_layers "$IMG_KEY"
     LOWER=$(cat "$DOCKER_ROOT/images/$IMG_KEY/lowerdir")
   fi`);
+  script = replaceRequired(script, '      tar -xf "$OCI_MNT/layers/$LID.tar" -C "$LDIR" 2>/dev/null || true', `      if [ -f "$OCI_MNT/layers/$LID.tar.gz" ]; then
+        tar -xzf "$OCI_MNT/layers/$LID.tar.gz" -C "$LDIR" || exit 1
+      else
+        tar -xf "$OCI_MNT/layers/$LID.tar" -C "$LDIR" 2>/dev/null || true
+      fi`);
   const start = script.indexOf('  # Mount real Linux overlayfs');
   const end = script.indexOf('  # Minimal container virtual filesystems');
   if (start < 0 || end <= start) throw Error('The bundled container setup changed');
@@ -718,6 +768,13 @@ function adaptEntry(source) {
   const hooks = [
     ['kernel:await nb(M_),memoryMiB:256,', 'kernel:await nb(M_),memoryMiB:' + workspaceMemoryMiB + ','],
     ['disks:ee?[{kind:`data`,template:`bundled`,name:`browser-agent`}]:[],', 'disks:await workstation.disks(ee),'],
+    ['async downloadLayersParallel(e,t,{emit:n,signal:r})',
+      'async downloadLayersParallel(e,t,{emit:n,signal:r,packedLayers})'],
+    ['let d=await I_(u);o+=d.byteLength,this.memFs.writeFile(`/layers/${c}.tar`,d),this.layerSizes.set(c,d.byteLength)',
+      'let packed=packedLayers?.has(e.file),d=packed?u:await I_(u),size=packed?new DataView(u.buffer,u.byteOffset,u.byteLength).getUint32(u.byteLength-4,true):d.byteLength;' +
+      'o+=size,this.memFs.writeFile(`/layers/${c}.tar`+(packed?`.gz`:``),d),this.layerSizes.set(c,size)'],
+    ['return new Uint8Array(await i.arrayBuffer())},{emit:t,signal:n});return this.finalizeImage',
+      'return new Uint8Array(await i.arrayBuffer())},{emit:t,signal:n,packedLayers:workstation.packedLayers(e.safeKey,a)});return this.finalizeImage'],
     ['r.writeFile(`/bin/docker`,H_),r.writeFile(`/bin/agent`,Jx)',
       'r.writeFile(`/bin/docker`,workstation.adaptDocker(H_)),r.writeFile(`/bin/agent`,Jx),r.writeFile(`/bin/alpine-agent`,workstation.alpineAgent),r.writeFile(`/bin/alpine-network`,workstation.alpineNetwork)'],
     ['S=new Kx(Gh),ee=x.get(`persist`)===`1`',
@@ -748,6 +805,10 @@ function adaptEntry(source) {
 globalThis.workstation = {
   alpineAgent, alpineNetwork, adaptDocker, adaptEntry, prepareGuest, prepareTerminal, bindNetwork, networkCommand, shellHistoryCommand, ready, egress,
   publishCommand,
+  packedLayers(image, layers) {
+    return new Set(layers.filter(layer => layer.file?.endsWith('.tar.gz') && oci['/oci/' + image + '/' + layer.file])
+      .map(layer => layer.file));
+  },
   disks: workspaceDisks,
   models: workspaceAgentModels,
   formatModels: formatWorkspaceAgentModels,
@@ -759,5 +820,5 @@ globalThis.workstation = {
 };
 
 installUI();
-const bootWorkstation = await loadWorkspace();
+const bootWorkstation = await chooseBoot();
 if (bootWorkstation) startPublicNetwork();

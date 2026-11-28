@@ -38,11 +38,40 @@ CODE_END = "// workstation source end"
 ORIGINAL_UI = '  <div class="frame"><div id="terminal"></div><div id="boot">booting...</div><output id="transfer" role="status"></output></div>'
 ORIGINAL_ENTRY = "try { await import(await makeModule(entry)); }"
 DATA = re.compile(r'(<script id="browser-agent-data" type="application/json">)(.*?)(</script>)')
+PAYLOADS_START = "<!-- browser agent payloads start -->"
+PAYLOADS_END = "<!-- browser agent payloads end -->"
+PAYLOAD_CHUNK = 1024 * 1024  # Base64 characters. Keep the boundary divisible by four.
+PAYLOAD_NODE = re.compile(r'<script type="application/octet-stream" data-workstation-payload="([a-z0-9-]+)">([A-Za-z0-9+/=]+)</script>')
+ASSET_LOADER = """const { entry, modules, oci } = JSON.parse(document.getElementById('browser-agent-data').textContent);
+const embeddedPayloads = new Map();
+for (const node of document.querySelectorAll('script[data-workstation-payload]')) {
+  const key = node.dataset.workstationPayload;
+  if (!embeddedPayloads.has(key)) embeddedPayloads.set(key, []);
+  embeddedPayloads.get(key).push(node);
+}
+document.getElementById('browser-agent-data').remove();
+function embeddedAsset(key) {
+  const source = embeddedPayloads.get(key);
+  if (source instanceof Blob) return source;
+  if (!source) throw Error('Missing embedded asset ' + key);
+  const blob = new Blob(source.map(node => {
+    const chunk = Uint8Array.fromBase64(node.textContent);
+    node.remove();
+    return chunk;
+  }));
+  embeddedPayloads.set(key, blob);
+  return blob;
+}
+"""
+OLD_ASSET_LOADER = """const { entry, modules, oci, payloads } = JSON.parse(document.getElementById('browser-agent-data').textContent);
+document.getElementById('browser-agent-data').remove();
+const bytes = (key) => Uint8Array.fromBase64(payloads[key]);
+"""
 DYNAMIC_IMPORT = re.compile(r"""\bimport\s*\(\s*(?P<quote>["'`])(?P<path>\./[\w.-]+\.m?js)(?P=quote)\s*\)""")
 LOADER = """async function kernelModule(module) {
   const integrity = 'sha256-' + Uint8Array.fromHex('%s').toBase64();
   if (module.key) {
-    const stream = new Blob([bytes(module.key)]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const stream = embeddedAsset(module.key).stream().pipeThrough(new DecompressionStream('gzip'));
     const data = await new Response(stream).arrayBuffer();
     if (await digest(new Blob([data])) !== '%s') throw Error('Embedded Linux runtime failed verification');
     return URL.createObjectURL(new Blob([data], { type: 'application/wasm' }));
@@ -74,11 +103,33 @@ def replace_section(source, start, end, contents, original):
     return source[:first] + "\n" + contents + "\n" + source[last:]
 
 
+def read_payloads(html, match, data):
+    if "payloads" in data:
+        return match.end()
+    start = html.index(PAYLOADS_START, match.end()) + len(PAYLOADS_START)
+    end = html.index(PAYLOADS_END, start)
+    chunks = {}
+    for key, chunk in PAYLOAD_NODE.findall(html[start:end]):
+        chunks.setdefault(key, []).append(chunk)
+    data["payloads"] = {key: "".join(parts) for key, parts in chunks.items()}
+    return end + len(PAYLOADS_END)
+
+
+def write_payloads(html, match, end, data):
+    payloads = data.pop("payloads")
+    output = [match[1], json.dumps(data, separators=(",", ":")), match[3], "\n", PAYLOADS_START, "\n"]
+    for key, payload in payloads.items():
+        for offset in range(0, len(payload), PAYLOAD_CHUNK):
+            output.append(f'<script type="application/octet-stream" data-workstation-payload="{key}">'
+                          + payload[offset:offset + PAYLOAD_CHUNK] + "</script>\n")
+    output.append(PAYLOADS_END)
+    return html[:match.start()] + "".join(output) + html[end:]
+
+
 def link_dynamic_imports(data):
     """Use the embedded dependency URLs for lazy imports in Blob modules."""
     modules = data["modules"]
     payloads = data["payloads"]
-    changed = False
     for name, module in modules.items():
         if not name.endswith((".js", ".mjs")) or "key" not in module:
             continue
@@ -98,8 +149,6 @@ def link_dynamic_imports(data):
         linked = DYNAMIC_IMPORT.sub(link, source)
         if linked != source:
             payloads[key] = base64.b64encode(gzip.compress(linked.encode(), mtime=0)).decode()
-            changed = True
-    return changed
 
 
 def embed_development_image(data, layer):
@@ -181,9 +230,15 @@ def main():
                             "new Blob([name === entry ? workstation.adaptEntry(source) : source], { type: 'text/javascript' })")
         html = replace_once(html, "<title>Browser Agent</title>", "<title>Pointblank Linux</title>")
         html = replace_once(html, "Browser Agent could not start.", "Pointblank Linux could not start.")
+    if OLD_ASSET_LOADER in html:
+        html = replace_once(html, OLD_ASSET_LOADER, ASSET_LOADER)
+        html = replace_once(html, "new Blob([bytes(module.key)]).stream().pipeThrough",
+                            "embeddedAsset(module.key).stream().pipeThrough")
+        html = replace_once(html, "new Response(bytes(key),", "new Response(embeddedAsset(key),")
     match = DATA.search(html)
     data = json.loads(match[2])
-    linked = link_dynamic_imports(data)
+    end = read_payloads(html, match, data)
+    link_dynamic_imports(data)
     if args.offline or args.kernel:
         if args.kernel:
             kernel = args.kernel.read_bytes()
@@ -205,11 +260,12 @@ def main():
             html = html[:start] + DEVELOPMENT_NOTICE + html[end:]
         else:
             html = replace_once(html, marker, DEVELOPMENT_NOTICE + marker)
-        match = DATA.search(html)
+        updated_match = DATA.search(html)
+        end += updated_match.end() - match.end()
+        match = updated_match
     if args.workspace_disk:
         data["payloads"]["pointblank-workspace-disk"] = base64.b64encode(args.workspace_disk.read_bytes()).decode()
-    if linked or args.offline or args.kernel or args.development_layer or args.workspace_disk:
-        html = html[:match.start(2)] + json.dumps(data, separators=(",", ":")) + html[match.end(2):]
+    html = write_payloads(html, match, end, data)
     if args.gateway:
         tag = '<meta name="workstation-gateway" content="' + html_tools.escape(args.gateway.rstrip('/'), quote=True) + '">'
         html = replace_once(html, "  <title>Pointblank Linux</title>", "  " + tag + "\n  <title>Pointblank Linux</title>")

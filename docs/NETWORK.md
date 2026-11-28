@@ -57,3 +57,9 @@ The publication worker uses a SQLite-backed Durable Object for socket coordinati
 ```sh
 npx --yes wrangler@4.168.0 deploy --config cloudflare/publish.toml
 ```
+
+## Native Cloudflare Tunnel
+
+Stock `cloudflared` needs DNS for Quick Tunnel provisioning and a direct tunnel connection to Cloudflare's edge on port 7844. Its HTTP/2 transport uses TCP and its QUIC transport uses UDP. The workstation's guest proxy handles approved HTTP requests, so it cannot carry those socket connections. [Cloudflare Tunnel firewall requirements](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)
+
+The browser can reach a WebSocket relay over HTTPS on port 443. The relay would need permission to dial the tunnel edge on TCP 7844 and preserve the guest's end-to-end TLS session. The Worker at `network.pointblankllc.com` cannot serve as that relay because Workers block outbound TCP sockets to Cloudflare IP ranges. A live Worker probe confirmed the block, and a direct TLS probe confirmed that the tunnel identity verifies on 7844 while 443 presents a certificate for a different service. [Workers TCP socket restrictions](https://developers.cloudflare.com/workers/runtime-apis/tcp-sockets/#considerations)

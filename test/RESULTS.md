@@ -302,3 +302,17 @@ Chromium opened the HTTPS publication in a separate browser context. The request
 The running publication Worker version is `94fe4c25-ae23-417d-9afb-7bfcd80ac52e`. Host version `72540ef3-c5ff-4ffe-9971-1850c2720cf1` serves the standalone HTML. The HTML is 103,141,565 bytes with SHA-256 `fcaa9a34c26f473a5f209af85e5daf8864e168657a43835840575fb2511a3f36`. Roll back the host to `8d9703dd-2565-4aa2-910c-6ddbeaba10c9` to restore the previous client. The private networking Worker keeps its existing routes.
 
 Run `node test/publish.mjs` with `WORKSTATION_PUBLISH_TEST_KEY_FILE` pointing to an authorized workstation egress-key file. The test requires the publication slot to be available. The complete suite passed from the production workstation, and the first live shell reached Alpine mirrors, GitHub, and npm with default networking. The standalone artifact, hosted preview, production response, and repeated build matched byte for byte.
+
+## Startup memory and recovery
+
+The HTML now loads embedded assets in chunks and keeps the bundled OCI layers compressed until Alpine extracts them directly into the guest filesystem. The mobile guest starts with 320 MiB of RAM and desktop keeps 512 MiB. Chromium reported 307 MiB of JavaScript heap at the first prompt on the previous production build and 82 MiB on the test build. These readings cover the JavaScript heap at shell readiness. They exclude the browser process's total memory and peak usage.
+
+`node test/boot-recovery.mjs` passed in Chromium and persistent WebKit with iPhone emulation. It saves a file, simulates an interrupted startup, opens a temporary shell, retries the checkpoint, and verifies that an ordinary reload also restores the file. The temporary shell cannot save over the checkpoint. Physical iPhone behavior remains unverified.
+
+Chromium opened the standalone file from disk. The hosted preview ran Git, Node, npm, APK, APT, the bundled tools, and the Strands lazy import. A Git commit and an installed local .deb survived a reload. All 22 embedded payloads and their metadata matched the previous version. The 103,156,812-byte standalone file, preview response, and repeat build matched SHA-256 `4379c87f2b96afe7e3aca858d1c54f2fec460b884079d176145a84820360c317`.
+
+Cloudflare host version `7d94bbde-27a8-4c02-bd5f-6aebcc859f3c` serves production at 100%. Rollback host version `72540ef3-c5ff-4ffe-9971-1850c2720cf1` restores the previous client.
+
+The production response matched the standalone SHA-256. The complete recovery test passed on production in iPhone-emulated WebKit. Production Chromium verified HTTPS curl, an APK install, a GitHub clone, and an npm install and import from Alpine. The project and installed .deb survived reload, and the test APT and cloudflared credentials were excluded.
+
+A fresh production guest ran stock `cloudflared` 2026.11.2 with HTTP/2. Quick Tunnel provisioning still exited 1 at DNS resolution, and a direct TCP attempt to the tunnel edge on 7844 was refused. The [native Tunnel notes](../docs/NETWORK.md#native-cloudflare-tunnel) describe the 443 relay path and the Workers egress restriction.

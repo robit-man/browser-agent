@@ -8,12 +8,13 @@ let growthRequest, spacePrompted = false;
 
 async function workspaceDisks(legacy) {
   const disks = legacy ? [{ kind: 'data', template: 'bundled', name: 'browser-agent' }] : [];
-  if (!workspaceLock?.exclusive || !payloads[workspaceDiskTemplate] || !globalThis.indexedDB) return disks;
+  if (!workspaceLock?.exclusive || !embeddedPayloads.has(workspaceDiskTemplate) || !globalThis.indexedDB) return disks;
   // These disks are scratch space. Durable workspace state lives in the checkpoints.
   for (const { name } of await indexedDB.databases?.().catch(() => []) || []) {
     if (name?.startsWith('kwdisk:' + workspaceDiskPrefix)) indexedDB.deleteDatabase(name);
   }
-  disks.push({ kind: 'data', template: bytes(workspaceDiskTemplate), name: workspaceDiskPrefix + crypto.randomUUID() });
+  const template = new Uint8Array(await embeddedAsset(workspaceDiskTemplate).arrayBuffer());
+  disks.push({ kind: 'data', template, name: workspaceDiskPrefix + crypto.randomUUID() });
   return disks;
 }
 
